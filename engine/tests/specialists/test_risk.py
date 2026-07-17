@@ -391,11 +391,32 @@ def test_run_nvda_fixture_serializes_to_json(nvda_packet):
     assert dumped["agent_id"] == "risk_analysis"
 
 
-def test_run_nvda_fixture_beta_not_scorable_empty_benchmark(nvda_packet):
-    """NVDA's fixture benchmark/sector data are empty (Task 10
-    limitation) -- beta must never be proxied (PROHIBITED_IMPUTATION)."""
-    assert nvda_packet.market_data.benchmark == []
+def test_run_nvda_fixture_beta_scored_with_populated_benchmark(nvda_packet):
+    """The NVDA golden fixture's `market_data.benchmark` is now populated
+    (SPY, aligned to the stock's trading dates -- packet-builder task) --
+    beta/downside-beta/correlation must be computed from it, not degrade."""
+    assert len(nvda_packet.market_data.benchmark) >= 30
     out = risk.run(nvda_packet)
+    beta_row = next(r for r in out.metrics if r.metric_id == "RSK-BETA-003")
+    corr_row = next(r for r in out.metrics if r.metric_id == "RSK-CORR-005")
+    # RSK-BETA-003/CORR-005 are value-only rows (score is always the literal
+    # "NOT_SCORABLE" placeholder per risk.py's `add(..., None)`) -- what
+    # matters is that `state` is no longer MISSING, i.e. a real value was
+    # computed from the benchmark instead of degrading. (RSK-DBETA-004
+    # additionally needs >=30 *down* observations, which this smooth
+    # synthetic fixture doesn't happen to have -- covered live instead.)
+    assert beta_row.state is None
+    assert beta_row.value is not None
+    assert corr_row.state is None
+
+
+def test_run_beta_not_scorable_empty_benchmark():
+    """With no benchmark data at all (e.g. the benchmark provider call
+    failing), beta must never be proxied (PROHIBITED_IMPUTATION) -- it
+    degrades to NOT_SCORABLE/MISSING rather than crashing or guessing."""
+    packet = _minimal_packet([_row(2025)], daily_closes=[100.0 + i for i in range(300)])
+    assert packet.market_data.benchmark == []
+    out = risk.run(packet)
     beta_row = next(r for r in out.metrics if r.metric_id == "RSK-BETA-003")
     assert beta_row.score == "NOT_SCORABLE"
     assert beta_row.state == NullState.MISSING

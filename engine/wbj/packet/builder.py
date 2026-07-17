@@ -38,6 +38,16 @@ from wbj.schemas.packet import AnalysisMeta, MarketData, OHLCVRow, Packet, Secur
 # Minimum daily OHLCV sessions required to accept a packet (task-10 brief).
 _MIN_DAILY_SESSIONS = 252
 
+# Benchmark/sector index ticker used for relative-strength and beta/
+# correlation metrics (technical.py's TECH-RS-011/RSS-012, risk.py's
+# RSK-BETA-003/DBETA-004/CORR-005). SPY (S&P 500 ETF) is used for both the
+# broad-market benchmark and, absent a per-sector ETF mapping, as the
+# sector proxy too -- a per-GICS-sector ETF map (XLK, XLF, XLE, ...) is a
+# reasonable future enhancement but not required for these metrics to
+# score: technical.py/risk.py only need *a* liquid, long-history index
+# series aligned to the stock's trading calendar, not a sector-precise one.
+_BENCHMARK_TICKER = "SPY"
+
 
 class PacketRejected(Exception):
     """Raised when a packet fails one of the Phase 0/1 hard-reject checks:
@@ -97,6 +107,34 @@ CANONICAL_FIELD_MAP: dict[str, str] = {
     "commonStockRepurchased": "common_stock_repurchased",
     "dividendsPaid": "dividends_paid",
     "stockBasedCompensation": "stock_based_compensation",
+    # --- additional statement fields (task: fuller FMP statement mapping) --
+    # These are genuine FMP statement data (not judgment/qualitative
+    # inputs) that several specialist formulas are documented to want from
+    # `Packet.fundamentals` (see e.g. risk.py's RSK-ICOV-011/AQI-023/
+    # DEPI-025/SGAI-026/ALT-030 and financial.py's FIN-BS-020/DX-028/
+    # DX-031 module comments: "not part of Packet.fundamentals"). As of
+    # this change the current specialist code for those specific metrics
+    # reads its inputs from an `overlay` dict (a separate judgment-layer
+    # input, Task 20) rather than `Packet.fundamentals`, or is hardcoded
+    # to MISSING pending a future code change -- see the packet-builder
+    # commit message / task report for the exact list. Mapping the raw
+    # data in here regardless: (a) is what those docstrings ask for, (b)
+    # is immediately useful to any other row that already reads
+    # `packet.fundamentals.annual/quarterly` directly, and (c) is the
+    # natural source for a future overlay-from-packet default.
+    "interestExpense": "interest_expense",
+    "ebitda": "ebitda",
+    "depreciationAndAmortization": "depreciation_and_amortization",
+    "sellingGeneralAndAdministrativeExpenses": "sga",
+    "researchAndDevelopmentExpenses": "rnd_expense",
+    "accountPayables": "accounts_payable",
+    "retainedEarnings": "retained_earnings",
+    # FMP's /stable/ balance-sheet statement only exposes *net* PP&E, not
+    # gross -- classic Beneish AQI/DEPI use gross PP&E, so this is a
+    # documented, honest proxy rather than a true substitute; named
+    # `ppe_net` (not `ppe`) so it's never silently mistaken for the gross
+    # figure those formulas actually call for.
+    "propertyPlantEquipmentNet": "ppe_net",
 }
 
 
@@ -227,6 +265,21 @@ def _max_date(dates: list[str | None]) -> str | None:
     return max(clean) if clean else None
 
 
+def _ohlcv_row(bar: dict) -> OHLCVRow:
+    """One raw FMP `/historical-price-eod` bar -> `OHLCVRow`, shared by the
+    stock and benchmark/sector series so both use the same adjusted-close
+    convention (`adj_close` falls back to `close` when FMP omits it)."""
+    return OHLCVRow(
+        date=bar["date"],
+        open=bar["open"],
+        high=bar["high"],
+        low=bar["low"],
+        close=bar["close"],
+        adj_close=bar.get("adjClose", bar["close"]),
+        volume=bar["volume"],
+    )
+
+
 # --- build_packet -----------------------------------------------------------
 
 
@@ -338,19 +391,19 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
 
     # --- market data ------------------------------------------------------
 
-    daily_rows = [
-        OHLCVRow(
-            date=bar["date"],
-            open=bar["open"],
-            high=bar["high"],
-            low=bar["low"],
-            close=bar["close"],
-            adj_close=bar.get("adjClose", bar["close"]),
-            volume=bar["volume"],
-        )
-        for bar in ohlcv_raw
-    ]
-    market_data = MarketData(daily=daily_rows, benchmark=[], sector=[], adjusted=True)
+    daily_rows = [_ohlcv_row(bar) for bar in ohlcv_raw]
+
+    # Benchmark (and, absent a per-sector ETF map, sector-proxy) series:
+    # SPY aligned to the stock's own trading dates via an inner join, so
+    # `close.tail(n)` position-alignment in technical.py/risk.py lines up
+    # with the same calendar dates on both sides. `today=now.date()` keeps
+    # this deterministic given `now` (never the wall clock).
+    benchmark_raw = fmp.ohlcv_daily(_BENCHMARK_TICKER, today=now.date()) or []
+    stock_dates = {bar["date"] for bar in ohlcv_raw}
+    benchmark_aligned_raw = [bar for bar in benchmark_raw if bar["date"] in stock_dates]
+    benchmark_rows = [_ohlcv_row(bar) for bar in benchmark_aligned_raw]
+
+    market_data = MarketData(daily=daily_rows, benchmark=benchmark_rows, sector=benchmark_rows, adjusted=True)
 
     # --- staleness ----------------------------------------------------------
 

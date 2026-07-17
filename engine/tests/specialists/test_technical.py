@@ -429,13 +429,28 @@ def test_run_nvda_fixture_important_levels_populated(nvda_packet):
     assert isinstance(out.important_levels.moving_averages, list)
 
 
-def test_run_nvda_fixture_benchmark_and_sector_empty_degrades_gracefully(nvda_packet):
-    """The NVDA fixture's `market_data.benchmark`/`.sector` are empty (a
-    Task 10 limitation, per the task-17 brief) -- RS/RSS must read
-    NOT_SCORABLE/MISSING, not crash."""
-    assert nvda_packet.market_data.benchmark == []
-    assert nvda_packet.market_data.sector == []
+def test_run_nvda_fixture_benchmark_and_sector_populated_scores_relative_strength(nvda_packet):
+    """The NVDA golden fixture's `market_data.benchmark`/`.sector` are now
+    populated (SPY, aligned to the stock's trading dates -- packet-builder
+    task) -- TECH-RS-011/RSS-012 must be scored, not degrade to
+    NOT_SCORABLE/MISSING."""
+    assert len(nvda_packet.market_data.benchmark) >= 64
+    assert len(nvda_packet.market_data.sector) >= 64
     out = tech.run(nvda_packet)
+    rs_row = next(r for r in out.metrics if r.metric_id == "TECH-RS-011")
+    rss_row = next(r for r in out.metrics if r.metric_id == "TECH-RSS-012")
+    assert rs_row.state is None
+    assert rss_row.state is None
+
+
+def test_run_benchmark_and_sector_empty_degrades_gracefully():
+    """With no benchmark/sector data at all (e.g. the benchmark provider
+    call failing), RS/RSS must read NOT_SCORABLE/MISSING, not crash."""
+    closes = _uptrend_closes(300)
+    packet = _packet(closes)
+    assert packet.market_data.benchmark == []
+    assert packet.market_data.sector == []
+    out = tech.run(packet)
     rs_row = next(r for r in out.metrics if r.metric_id == "TECH-RS-011")
     assert rs_row.score == "NOT_SCORABLE"
 
