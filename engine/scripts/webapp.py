@@ -23,6 +23,7 @@ from wbj.providers.edgar import (
     TICKERS_URL,
     EdgarProvider,
 )
+from wbj.screener import screen as run_screen
 from wbj.targets import live_price, narrative, price_targets
 
 PORT = 8765
@@ -102,7 +103,23 @@ PAGE = """<!doctype html>
   .kicker { font-size:12px; letter-spacing:.14em; text-transform:uppercase;
     color:var(--muted); font-weight:600; margin-bottom:6px; }
   h1 { font-size:26px; margin-bottom:16px; letter-spacing:-.02em; }
-  .searchbox { position:relative; max-width:560px; }
+  .topbar { display:flex; gap:12px; align-items:stretch; max-width:760px; }
+  .searchbox { position:relative; flex:1; max-width:560px; }
+  .discover { font:inherit; font-size:14.5px; font-weight:700; padding:0 22px;
+    border:0; border-radius:14px; background:var(--purple); color:#fff; cursor:pointer;
+    box-shadow:0 1px 3px rgba(20,22,30,.15); white-space:nowrap; }
+  .discover:hover { filter:brightness(1.08); }
+  table.scr { width:100%; border-collapse:collapse; margin-top:14px; font-size:13.5px; }
+  table.scr th { text-align:left; font-size:11.5px; text-transform:uppercase;
+    letter-spacing:.08em; color:var(--muted); padding:0 10px 10px 0; font-weight:600; }
+  table.scr td { padding:11px 10px 11px 0; border-top:1px solid var(--grid);
+    font-variant-numeric:tabular-nums; }
+  table.scr td.nm { max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  table.scr .tk { font-weight:800; cursor:pointer; color:var(--purple); }
+  table.scr .num { text-align:right; }
+  .scorepill { display:inline-flex; align-items:center; gap:8px; }
+  .scorepill .mini { width:64px; height:7px; background:var(--grid); border-radius:5px; overflow:hidden; }
+  .scorepill .mini i { display:block; height:100%; background:var(--green); border-radius:5px; }
   input { width:100%; font:inherit; font-size:16px; padding:14px 18px;
     border-radius:14px; border:1px solid transparent; background:var(--card);
     color:var(--ink); outline:none; box-shadow:0 1px 3px rgba(20,22,30,.07); }
@@ -187,12 +204,16 @@ PAGE = """<!doctype html>
 </style></head><body><div class="wrap">
   <div class="kicker">Warren Buffett Jr · Motor de Análisis · SEC EDGAR en vivo</div>
   <h1>Busca una empresa</h1>
-  <div class="searchbox">
-    <input id="q" placeholder="Escribe un ticker o nombre — ej. NFLX, Disney, Coca-Cola…"
-      autocomplete="off" autofocus>
-    <div class="sugg" id="sugg"></div>
+  <div class="topbar">
+    <div class="searchbox">
+      <input id="q" placeholder="Escribe un ticker o nombre — ej. NFLX, Disney, Coca-Cola…"
+        autocomplete="off" autofocus>
+      <div class="sugg" id="sugg"></div>
+    </div>
+    <button class="discover" id="discoverBtn">✨ Descubrir empresas</button>
   </div>
   <div id="status"></div>
+  <div class="card" id="screenCard" style="display:none;margin-top:22px"></div>
   <div class="grid" id="grid">
     <div class="card c-hero" id="heroCard"></div>
     <div class="card c-words" id="wordsCard"></div>
@@ -330,6 +351,44 @@ function targetHtml(d) {
     <div class="sub" style="margin-top:12px">${t.disclaimer}</div>`;
 }
 
+const screenCard = document.getElementById('screenCard');
+document.getElementById('discoverBtn').addEventListener('click', async () => {
+  grid.style.display = 'none'; screenCard.style.display = 'none';
+  status.innerHTML = `<span class="spin"></span>Escaneando todo el universo de la SEC:
+    empresas medianas ($0.8B–$30B), rentables y creciendo… la primera vez tarda 1–2 min.`;
+  try {
+    const r = await fetch('/api/screen');
+    if (!r.ok) throw new Error((await r.json()).error || r.status);
+    const rows = await r.json();
+    const trs = rows.map((x, i) => `<tr>
+      <td>${i + 1}</td>
+      <td class="tk" data-t="${x.ticker}">${x.ticker}</td>
+      <td class="nm">${x.name}</td>
+      <td class="num">$${(x.revenue / 1e9).toFixed(1)}B</td>
+      <td class="num">${(x.growth * 100).toFixed(0)}%</td>
+      <td class="num">${(x.margin * 100).toFixed(0)}%</td>
+      <td class="num">${x.target_base ? '$' + x.target_base.toFixed(0) +
+        ' <span class="chip ' + (x.upside_base >= 0 ? 'up' : 'down') + '">' +
+        (x.upside_base >= 0 ? '+' : '') + (x.upside_base * 100).toFixed(0) + '%</span>' : '—'}</td>
+      <td><span class="scorepill"><span class="mini"><i style="width:${x.score10 * 10}%"></i></span>
+        <b>${x.score10.toFixed(1)}</b></span></td>
+    </tr>`).join('');
+    screenCard.innerHTML = `<h2>Empresas descubiertas — top ${rows.length} por puntaje</h2>
+      <div class="sub">Prefiltro: ventas $0.8B–$30B · margen neto > 8% · crecimiento > 5% ·
+      datos SEC EDGAR · clasificación de research, no asesoría. Toca un ticker para el análisis completo.</div>
+      <table class="scr"><thead><tr><th>#</th><th>Ticker</th><th>Empresa</th>
+        <th style="text-align:right">Ventas</th><th style="text-align:right">Crec.</th>
+        <th style="text-align:right">Margen</th><th style="text-align:right">Target medio</th>
+        <th>Puntaje</th></tr></thead><tbody>${trs}</tbody></table>`;
+    screenCard.style.display = 'block';
+    status.textContent = '';
+    screenCard.querySelectorAll('.tk').forEach(el =>
+      el.addEventListener('click', () => { screenCard.style.display = 'none'; run(el.dataset.t); }));
+  } catch (err) {
+    status.innerHTML = `No pude completar el descubrimiento: ${err.message}`;
+  }
+});
+
 async function run(t) {
   if (!t) return;
   sugg.style.display = 'none'; grid.style.display = 'none';
@@ -377,6 +436,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif url.path == "/api/search":
             self._json(search(qs.get("q", [""])[0]))
+        elif url.path == "/api/screen":
+            try:
+                with _lock:
+                    self._json(run_screen(limit=15))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
         elif url.path == "/api/analyze":
             ticker = qs.get("ticker", [""])[0].strip().upper()
             if not ticker:

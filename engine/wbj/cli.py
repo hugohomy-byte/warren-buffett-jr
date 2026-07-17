@@ -285,6 +285,23 @@ def scorecard(ticker: str) -> None:
 
 
 @app.command()
+def screen(limit: int = 15) -> None:
+    """Discover well-scoring companies you may not know (research list)."""
+    from wbj.screener import screen as run_screen
+
+    typer.echo("Escaneando universo SEC (primera vez puede tardar 1-2 min)...")
+    rows = run_screen(limit=limit, progress=lambda i, n, t: typer.echo(f"  [{i}/{n}] {t}"))
+    typer.echo(f"\n=== Descubrimiento — top {len(rows)} por puntaje (research, no asesoria) ===")
+    for i, r in enumerate(rows, 1):
+        up = f"  target medio ${r['target_base']:,.0f} ({r['upside_base']:+.0%})" if r["target_base"] else ""
+        typer.echo(
+            f"{i:>2}. {r['ticker']:<6} {r['name'][:34]:<34} "
+            f"{r['score10']}/10  ventas ${r['revenue'] / 1e9:.1f}B  "
+            f"crec {r['growth']:+.0%}  margen {r['margin']:.0%}{up}"
+        )
+
+
+@app.command()
 def aggregate(ticker: str) -> None:
     """Aggregate specialist outputs for a ticker."""
     typer.echo(f"aggregate {ticker}: not implemented")
