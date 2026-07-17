@@ -244,6 +244,25 @@ PAGE = """<!doctype html>
     color:var(--purple); }
   .app.results #brand:hover { filter:brightness(1.1); }
   .app.results .topbar { flex:1; margin:0; }
+  /* --- Tarjeta de loading: checklist de etapas del análisis --- */
+  .loadcard h2 { font-size:18px; }
+  ul.stages { list-style:none; margin:18px 0 6px; }
+  ul.stages li { display:flex; align-items:center; gap:12px; padding:9px 0;
+    font-size:14.5px; color:var(--muted); transition:color .3s; }
+  ul.stages li .ic { flex:none; width:20px; height:20px; border-radius:50%;
+    border:2px solid var(--grid); display:inline-flex; align-items:center;
+    justify-content:center; transition:background .3s,border-color .3s; }
+  ul.stages li.active { color:var(--ink); font-weight:600; }
+  ul.stages li.active .ic { border-color:var(--purple); border-top-color:transparent;
+    animation:r .7s linear infinite; }
+  ul.stages li.done { color:var(--ink2); }
+  ul.stages li.done .ic { background:var(--green); border-color:var(--green); }
+  ul.stages li.done .ic::after { content:'✓'; color:#fff; font-size:12px; font-weight:800; }
+  .loadbar { height:10px; background:var(--grid); border-radius:6px; overflow:hidden; margin-top:14px; }
+  .loadbar i { display:block; height:100%; width:0%; border-radius:6px;
+    background:linear-gradient(90deg,var(--purple),var(--green)); transition:width .6s ease; }
+  .loadpct { text-align:right; font-size:12.5px; color:var(--muted); margin-top:6px;
+    font-variant-numeric:tabular-nums; font-weight:600; }
 </style></head><body><div class="app landing" id="app"><div class="wrap">
   <header class="hero">
     <div class="kicker">Warren Buffett Jr · Motor de Análisis · SEC EDGAR en vivo</div>
@@ -260,6 +279,7 @@ PAGE = """<!doctype html>
   </header>
   <div id="status"></div>
   <div class="card" id="screenCard" style="display:none;margin-top:22px"></div>
+  <div class="card loadcard" id="loadCard" style="display:none;margin-top:22px"></div>
   <div class="grid" id="grid">
     <div class="card c-hero" id="heroCard"></div>
     <div class="card c-words" id="wordsCard"></div>
@@ -292,6 +312,53 @@ brand.addEventListener('click', () => {
   status.textContent = ''; q.value = ''; sugg.style.display = 'none';
   setMode('landing'); q.focus();
 });
+
+// --- Loading: checklist de etapas mientras corre /api/analyze -------------
+const LOAD_STAGES = [
+  'Leyendo reportes SEC EDGAR',
+  'Analizando negocio y finanzas',
+  'Evaluando riesgo y valuación',
+  'Calculando precio objetivo',
+  'Sintetizando puntaje',
+];
+const LOAD_PCTS = [16, 38, 58, 78, 92];  // el último se sostiene hasta que llega la respuesta
+let loadTimer = null;
+
+function startLoading(t) {
+  const el = document.getElementById('loadCard');
+  el.style.display = 'block';
+  el.innerHTML = `<h2>Analizando ${t}…</h2>
+    <div class="sub">Leyendo datos oficiales de la SEC y calculando el puntaje</div>
+    <ul class="stages">${LOAD_STAGES.map((s, i) =>
+      `<li id="st${i}" class="pending"><span class="ic"></span><span>${s}</span></li>`).join('')}</ul>
+    <div class="loadbar"><i id="loadfill"></i></div>
+    <div class="loadpct" id="loadpct">0%</div>`;
+  const fill = document.getElementById('loadfill'), pct = document.getElementById('loadpct');
+  function setStage(n) {
+    for (let i = 0; i < LOAD_STAGES.length; i++) {
+      document.getElementById('st' + i).className = i < n ? 'done' : (i === n ? 'active' : 'pending');
+    }
+    fill.style.width = LOAD_PCTS[n] + '%'; pct.textContent = LOAD_PCTS[n] + '%';
+  }
+  let cur = 0; setStage(0);
+  clearInterval(loadTimer);
+  loadTimer = setInterval(() => {
+    if (cur < LOAD_STAGES.length - 1) setStage(++cur);
+    else clearInterval(loadTimer);  // se queda en la última etapa (~92%) hasta finishLoading
+  }, 850);
+}
+
+function finishLoading(ok, cb) {
+  clearInterval(loadTimer);
+  const el = document.getElementById('loadCard');
+  if (!ok) { el.style.display = 'none'; if (cb) cb(); return; }
+  for (let i = 0; i < LOAD_STAGES.length; i++) {
+    const li = document.getElementById('st' + i); if (li) li.className = 'done';
+  }
+  const fill = document.getElementById('loadfill'), pct = document.getElementById('loadpct');
+  if (fill) fill.style.width = '100%'; if (pct) pct.textContent = '100%';
+  setTimeout(() => { el.style.display = 'none'; if (cb) cb(); }, 320);
+}
 
 q.addEventListener('input', () => {
   clearTimeout(timer);
@@ -554,8 +621,9 @@ async function run(t) {
   if (!t) return;
   setMode('results');
   sugg.style.display = 'none'; grid.style.display = 'none';
+  screenCard.style.display = 'none'; status.textContent = '';
   q.value = t;
-  status.innerHTML = `<span class="spin"></span>Leyendo reportes de la SEC y calculando <b>${t}</b>…`;
+  startLoading(t);
   try {
     const r = await fetch('/api/analyze?ticker=' + encodeURIComponent(t));
     if (!r.ok) throw new Error((await r.json()).error || r.status);
@@ -564,14 +632,16 @@ async function run(t) {
     document.getElementById('wordsCard').innerHTML = wordsHtml(d);
     document.getElementById('scoreCard').innerHTML = scoreHtml(d);
     document.getElementById('targetCard').innerHTML = targetHtml(d);
-    grid.style.display = 'grid';
-    renderChart(d);
-    status.textContent = '';
-    requestAnimationFrame(() => {
-      document.querySelectorAll('.stick[data-h]').forEach(b => b.style.height = b.dataset.h + '%');
-      document.querySelectorAll('.fill2[data-w]').forEach(f => f.style.width = f.dataset.w + '%');
+    finishLoading(true, () => {
+      grid.style.display = 'grid';
+      renderChart(d);
+      requestAnimationFrame(() => {
+        document.querySelectorAll('.stick[data-h]').forEach(b => b.style.height = b.dataset.h + '%');
+        document.querySelectorAll('.fill2[data-w]').forEach(f => f.style.width = f.dataset.w + '%');
+      });
     });
   } catch (err) {
+    finishLoading(false);
     status.innerHTML = `No pude analizar <b>${t}</b>: ${err.message}`;
   }
 }
