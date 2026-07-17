@@ -1,0 +1,12 @@
+# Claves de API — nunca versionar
+API/
+*.key
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Archivos temporales
+*.tmp
+~$*
