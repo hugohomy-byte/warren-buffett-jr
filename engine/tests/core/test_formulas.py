@@ -55,9 +55,23 @@ def test_register_formula_stores_in_registry():
     assert f.missing_behavior == NullState.MISSING
 
 
-def test_run_formula_unknown_id_raises_keyerror():
-    with pytest.raises(KeyError):
-        run_formula("NOPE-999", {})
+def test_run_formula_unknown_id_returns_error_result_not_crash():
+    r = run_formula("NOPE-999", {})
+    assert r.status == "ERROR"
+    assert r.result.is_null and r.result.state == NullState.NOT_SCORABLE
+    assert r.formula_id == "NOPE-999" and r.formula_version == "unknown"
+    assert any("unknown formula_id: NOPE-999" in w for w in r.warnings)
+
+
+def test_run_formula_none_return_is_error_not_crash():
+    @register_formula(id="TST-006", version="1.0.0", unit="usd", inputs=["a"])
+    def forgot_return(a: float) -> float:  # type: ignore[return-value]
+        _ = a * 2  # missing return statement -> returns None
+
+    r = run_formula("TST-006", {"a": 1.0})
+    assert r.status == "ERROR"
+    assert r.result.is_null
+    assert r.warnings and len(r.warnings) >= 1
 
 
 def test_run_formula_missing_key_entirely_uses_missing_behavior():

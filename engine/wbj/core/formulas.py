@@ -3,8 +3,10 @@
 Every formula that computes a metric for the wbj compute engine registers
 itself here via `register_formula`, and is invoked through `run_formula`,
 which produces a Cerebro-shaped result object, unwraps `Value` inputs,
-propagates null states without crashing, and never lets a raw exception
-escape (it is converted to a `status="ERROR"` result instead).
+and propagates null states. `run_formula` never raises: an unknown
+formula id, an exception inside the formula body, and a non-numeric
+formula return all degrade to a `status="ERROR"` result with a warning
+rather than crashing the caller.
 
 Sources of truth (Cerebro/shared/):
 - FORMULA_REGISTRY.md: formula-result object shape, registration
@@ -94,18 +96,31 @@ def register_formula(
 def run_formula(formula_id: str, data: dict[str, "Value | object"]) -> FormulaResult:
     """Look up `formula_id` in `REGISTRY` and run it against `data`.
 
+    Never raises: every failure mode degrades to a `FormulaResult`.
+
+    - Unknown `formula_id` -> ERROR result (`formula_version="unknown"`,
+      warning `"unknown formula_id: <id>"`). Later tasks call this by
+      string id across ~200 formulas; a typo must degrade, not crash.
     - Any declared input missing from `data` entirely -> NULL result using
       the formula's `missing_behavior`.
     - Any declared input present as a null `Value` -> NULL result carrying
       that same null state (the input's own state wins over
       `missing_behavior`, since the caller already told us why).
-    - Any exception raised by the formula body -> ERROR result, exception
-      message captured in `warnings`.
+    - Any exception raised by the formula body, or a non-numeric return
+      (e.g. a missing return statement yielding None) -> ERROR result,
+      exception message captured in `warnings`.
     - A successful numeric return is wrapped in `Value.of(..., unit=formula.unit,
       evidence_class=EvidenceClass.C)`.
     """
     if formula_id not in REGISTRY:
-        raise KeyError(f"No formula registered with id {formula_id!r}")
+        return FormulaResult(
+            formula_id=formula_id,
+            formula_version="unknown",
+            inputs={},
+            result=Value.null(NullState.NOT_SCORABLE),
+            status="ERROR",
+            warnings=[f"unknown formula_id: {formula_id}"],
+        )
     formula = REGISTRY[formula_id]
 
     inputs_snapshot = {name: data[name] for name in formula.inputs if name in data}
@@ -139,6 +154,9 @@ def run_formula(formula_id: str, data: dict[str, "Value | object"]) -> FormulaRe
 
     try:
         raw_result = formula.fn(**kwargs)
+        # Wrap inside the try so a non-numeric return (e.g. None from a
+        # missing return statement) degrades to ERROR, never a crash.
+        result = Value.of(raw_result, unit=formula.unit, evidence_class=EvidenceClass.C)
     except Exception as exc:  # noqa: BLE001 - deliberately broad: any formula-body error -> ERROR result
         return FormulaResult(
             formula_id=formula.id,
@@ -153,7 +171,7 @@ def run_formula(formula_id: str, data: dict[str, "Value | object"]) -> FormulaRe
         formula_id=formula.id,
         formula_version=formula.version,
         inputs=inputs_snapshot,
-        result=Value.of(raw_result, unit=formula.unit, evidence_class=EvidenceClass.C),
+        result=result,
         status="OK",
         warnings=warnings,
     )
