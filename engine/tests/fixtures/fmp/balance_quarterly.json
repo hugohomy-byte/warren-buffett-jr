@@ -1,0 +1,24 @@
+[
+  {
+    "date": "2025-04-27",
+    "symbol": "NVDA",
+    "period": "Q1",
+    "calendarYear": "2025",
+    "acceptedDate": "2025-05-28 16:30:00",
+    "cashAndCashEquivalents": 15330000000,
+    "totalAssets": 125269000000,
+    "totalLiabilities": 34701000000,
+    "totalStockholdersEquity": 90568000000
+  },
+  {
+    "date": "2025-01-26",
+    "symbol": "NVDA",
+    "period": "Q4",
+    "calendarYear": "2024",
+    "acceptedDate": "2025-02-20 16:30:00",
+    "cashAndCashEquivalents": 8589000000,
+    "totalAssets": 111601000000,
+    "totalLiabilities": 32274000000,
+    "totalStockholdersEquity": 79327000000
+  }
+]

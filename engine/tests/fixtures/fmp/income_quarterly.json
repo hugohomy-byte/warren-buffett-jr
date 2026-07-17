@@ -1,0 +1,24 @@
+[
+  {
+    "date": "2025-04-27",
+    "symbol": "NVDA",
+    "period": "Q1",
+    "calendarYear": "2025",
+    "acceptedDate": "2025-05-28 16:30:00",
+    "revenue": 44062000000,
+    "operatingIncome": 27057000000,
+    "netIncome": 18775000000,
+    "eps": 0.76
+  },
+  {
+    "date": "2025-01-26",
+    "symbol": "NVDA",
+    "period": "Q4",
+    "calendarYear": "2024",
+    "acceptedDate": "2025-02-20 16:30:00",
+    "revenue": 39331000000,
+    "operatingIncome": 24034000000,
+    "netIncome": 22091000000,
+    "eps": 0.89
+  }
+]

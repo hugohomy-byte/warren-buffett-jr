@@ -1,0 +1,22 @@
+[
+  {
+    "date": "2025-01-26",
+    "symbol": "NVDA",
+    "period": "FY",
+    "calendarYear": "2025",
+    "acceptedDate": "2025-02-20 16:30:00",
+    "netCashProvidedByOperatingActivities": 64089000000,
+    "capitalExpenditure": -3236000000,
+    "freeCashFlow": 60853000000
+  },
+  {
+    "date": "2024-01-28",
+    "symbol": "NVDA",
+    "period": "FY",
+    "calendarYear": "2024",
+    "acceptedDate": "2024-02-21 16:32:00",
+    "netCashProvidedByOperatingActivities": 28090000000,
+    "capitalExpenditure": -1069000000,
+    "freeCashFlow": 27021000000
+  }
+]
