@@ -24,6 +24,7 @@ from wbj.providers.edgar import (
     EdgarProvider,
 )
 from wbj.screener import screen as run_screen
+from wbj.brief import company_brief
 from wbj.targets import live_price, narrative, price_history, price_targets
 
 PORT = 8765
@@ -89,6 +90,7 @@ def analyze(ticker: str) -> dict:
                     result["scorecard"], targets)
     result["targets"] = targets
     result["narrative"] = narrative(packet, result["scorecard"], targets)
+    result["brief"] = company_brief(packet, result["scorecard"], targets)
     result["history"] = _history(packet)
     result["chart"] = price_history(ticker)
     return result
@@ -149,7 +151,47 @@ PAGE = """<!doctype html>
   .c-hero { grid-column:span 7; } .c-words { grid-column:span 5; }
   .c-chart { grid-column:span 12; background:#0e1113; color:#e8eaed; }
   .c-score { grid-column:span 5; } .c-target { grid-column:span 7; }
+  .c-brief { grid-column:span 12; }
   @media (max-width:860px) { .c-hero,.c-words,.c-chart,.c-score,.c-target { grid-column:span 12; } }
+  /* --- company brief panel --- */
+  .brief-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:18px; margin-top:6px; }
+  .brief-col { grid-column:span 6; } .brief-col.full { grid-column:span 12; }
+  @media (max-width:860px) { .brief-col { grid-column:span 12; } }
+  .bh { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--ink2); margin:2px 0 12px; }
+  .classpill { display:inline-flex; align-items:center; gap:8px; padding:8px 14px;
+    border-radius:999px; font-weight:800; font-size:15px; margin-bottom:6px; }
+  .classpill.favorece { background:var(--green-bg); color:var(--green); }
+  .classpill.neutral { background:var(--orange-bg); color:var(--orange); }
+  .classpill.evitar { background:var(--red-bg); color:var(--red); }
+  .revisit { font-size:13px; color:var(--ink2); margin:4px 0 14px; }
+  .cat-row { display:grid; grid-template-columns:1fr auto; gap:10px; padding:7px 0;
+    border-top:1px solid var(--grid); font-size:14px; }
+  .cat-row .mn { font-weight:700; }
+  .cat-row .mn.ns { color:var(--muted); font-weight:600; }
+  .probbar { display:flex; height:26px; border-radius:8px; overflow:hidden; margin:4px 0 12px;
+    border:1px solid var(--grid); }
+  .probbar i { display:block; }
+  .prow { display:grid; grid-template-columns:70px 1fr 54px; gap:10px; align-items:center;
+    font-size:14px; padding:5px 0; }
+  .prow .tag { font-weight:800; } .prow .tag.bull { color:var(--green); }
+  .prow .tag.base { color:var(--blue); } .prow .tag.bear { color:var(--red); }
+  .prow .pv { text-align:right; font-weight:800; }
+  .prow .pt { color:var(--ink2); }
+  .modal { font-size:14px; margin:8px 0 4px; }
+  .modal b { color:var(--ink); }
+  .levels { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:6px 0 10px; }
+  .lvl { background:var(--page); border-radius:12px; padding:12px 14px; }
+  .lvl .k { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink2); }
+  .lvl .v { font-size:20px; font-weight:800; margin-top:2px; }
+  .lvl.entrada .v { color:var(--ink); } .lvl.inval .v { color:var(--red); }
+  .lvl.salida .v { color:var(--green); }
+  .wl { list-style:none; margin:2px 0 10px; padding:0; }
+  .wl li { padding:7px 0; border-top:1px solid var(--grid); font-size:14px; display:flex;
+    justify-content:space-between; gap:10px; }
+  .ins-buy { color:var(--green); font-weight:800; } .ins-sell { color:var(--red); font-weight:800; }
+  .risk li::before { content:"⚠ "; color:var(--orange); }
+  .brief-note { font-size:12px; color:var(--muted); margin-top:6px; }
   .c-chart h2 { color:#fff; } .c-chart .sub { color:#8b929c; }
   .chart-head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:8px 0 4px; }
   .chart-head .px { font-size:34px; font-weight:800; letter-spacing:-.02em; }
@@ -286,6 +328,7 @@ PAGE = """<!doctype html>
     <div class="card c-chart" id="chartCard"></div>
     <div class="card c-score" id="scoreCard"></div>
     <div class="card c-target" id="targetCard"></div>
+    <div class="card c-brief" id="briefCard"></div>
   </div>
   <div class="foot" id="foot"><b>Nota:</b> Puntaje rápido con datos oficiales de la SEC (EDGAR).
   Sin evidencia no hay número: las categorías pendientes se muestran como N/S, nunca se inventan.
@@ -481,6 +524,97 @@ function targetHtml(d) {
     <div class="sub" style="margin-top:12px">${t.disclaimer}</div>`;
 }
 
+function money(x, dec) {
+  return '$' + Number(x).toLocaleString('en-US', {minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0});
+}
+
+function briefHtml(d) {
+  const b = d.brief;
+  if (!b) return '';
+  const it = b.interpretation, pr = b.probability, w = b.watch;
+
+  // 1) Qué significa el score
+  const cls = it.classification || 'neutral';
+  const revisit = it.revisit ? `<div class="revisit">↻ ${it.revisit}</div>` : '';
+  const cats = (it.categories || []).map(c => {
+    const ns = c.score10 == null;
+    const val = ns ? 'N/S' : `${c.score10}/10 · ${c.meaning}`;
+    return `<div class="cat-row"><span class="mn ${ns ? 'ns' : ''}">${c.label}</span><span>${val}</span></div>`;
+  }).join('');
+  const interpCol = `<div class="brief-col">
+    <div class="bh">Qué significa el puntaje</div>
+    <span class="classpill ${cls}">${(cls || 'sin dato').toUpperCase()}</span>
+    <div class="revisit">${it.classification_label}</div>${revisit}${cats}</div>`;
+
+  // 2) Probabilidad hacia el precio
+  let probCol;
+  if (pr.status === 'ok') {
+    const by = {}; pr.targets.forEach(t => by[t.key] = t);
+    const order = ['bull', 'base', 'bear'];
+    const col = {bull: 'var(--green)', base: 'var(--blue)', bear: 'var(--red)'};
+    // partition bar: below-bear / bear-base / base-bull / above-bull
+    const pb = by.bear.prob_reach, pm = by.base.prob_reach, pu = by.bull.prob_reach;
+    const seg = [
+      [(1 - pb) * 100, '#c9ced8', 'por debajo de Bear'],
+      [(pb - pm) * 100, 'var(--red)', 'Bear→Medio'],
+      [(pm - pu) * 100, 'var(--blue)', 'Medio→Bull'],
+      [pu * 100, 'var(--green)', 'por encima de Bull'],
+    ].map(s => `<i style="width:${Math.max(0, s[0]).toFixed(1)}%;background:${s[1]}" title="${s[2]}: ${s[0].toFixed(0)}%"></i>`).join('');
+    const rows = order.map(k => {
+      const t = by[k];
+      return `<div class="prow"><span class="tag ${k}">${t.label}</span>
+        <span class="pt">llegar a ${money(t.target, 0)}</span>
+        <span class="pv">${(t.prob_reach * 100).toFixed(0)}%</span></div>`;
+    }).join('');
+    probCol = `<div class="brief-col">
+      <div class="bh">Probabilidad hacia el precio (12 meses)</div>
+      <div class="probbar">${seg}</div>
+      <div class="modal">Resultado más probable: <b>${pr.modal_zone}</b> (${(pr.modal_prob * 100).toFixed(0)}%)</div>
+      ${rows}
+      <div class="brief-note">${pr.assumptions}</div></div>`;
+  } else {
+    probCol = `<div class="brief-col"><div class="bh">Probabilidad hacia el precio</div>
+      <p style="color:var(--ink2);font-size:14px">No calculable: ${pr.reason}.</p></div>`;
+  }
+
+  // 3) Puntos clave a vigilar
+  const lv = w.levels;
+  const levelsBlock = lv.status === 'ok' ? `<div class="levels">
+      <div class="lvl entrada"><div class="k">Entrada aprox.</div><div class="v">${money(lv.entrada, 2)}</div></div>
+      <div class="lvl inval"><div class="k">Invalidación</div><div class="v">${lv.invalidacion != null ? money(lv.invalidacion, 2) : '—'}</div></div>
+      <div class="lvl salida"><div class="k">Salida (Medio)</div><div class="v">${lv.salida_base != null ? money(lv.salida_base, 2) : '—'}</div></div>
+    </div><div class="brief-note">${lv.nota}</div>` :
+    `<p style="color:var(--ink2);font-size:14px">Niveles no disponibles: ${lv.reason}.</p>`;
+
+  const ne = w.catalysts && w.catalysts.next_earnings;
+  const catBlock = ne ? `<ul class="wl"><li><span>Próximo earnings</span><b>${ne.date}</b></li>
+      ${ne.eps_est != null ? `<li><span>EPS estimado</span><b>$${ne.eps_est}</b></li>` : ''}</ul>` :
+    `<div class="brief-note">Sin fecha de earnings próxima disponible.</div>`;
+
+  const ins = w.insiders || [];
+  const insBlock = ins.length ? `<ul class="wl">${ins.map(i =>
+      `<li><span>${i.name || 'Insider'} · ${i.date || ''}</span>
+        <span class="${i.side === 'compra' ? 'ins-buy' : 'ins-sell'}">${i.side === 'compra' ? 'COMPRA' : 'VENTA'} ${money(i.value, 0)}</span></li>`).join('')}</ul>` :
+    `<div class="brief-note">Sin transacciones de insiders sobre $1M.</div>`;
+
+  const risks = w.risks || [];
+  const riskBlock = risks.length ? `<ul class="wl risk">${risks.map(r => `<li><span>${r}</span></li>`).join('')}</ul>` :
+    `<div class="brief-note">Sin banderas de riesgo materiales en los datos.</div>`;
+
+  const watchCol = `<div class="brief-col full">
+    <div class="bh">Puntos clave a vigilar</div>
+    <div class="brief-grid">
+      <div class="brief-col"><div class="bh" style="font-size:12px">Niveles de precio</div>${levelsBlock}</div>
+      <div class="brief-col"><div class="bh" style="font-size:12px">Próximos catalizadores</div>${catBlock}</div>
+      <div class="brief-col"><div class="bh" style="font-size:12px">Insiders &gt; $1M (Forms 4)</div>${insBlock}</div>
+      <div class="brief-col"><div class="bh" style="font-size:12px">Riesgos / rompe-tesis</div>${riskBlock}</div>
+    </div></div>`;
+
+  return `<h2>Lectura para el inversionista</h2>
+    <div class="sub">Qué significa el puntaje, probabilidad hacia el precio y qué observar</div>
+    <div class="brief-grid" style="margin-top:16px">${interpCol}${probCol}${watchCol}</div>`;
+}
+
 // --- Gráfica SVG propia (cero dependencias externas) ---------------------
 let tvData = [], tvTargets = null;
 const PERIODS = { '1M': 21, '3M': 63, '6M': 126, '1A': 9999 };
@@ -632,6 +766,7 @@ async function run(t) {
     document.getElementById('wordsCard').innerHTML = wordsHtml(d);
     document.getElementById('scoreCard').innerHTML = scoreHtml(d);
     document.getElementById('targetCard').innerHTML = targetHtml(d);
+    document.getElementById('briefCard').innerHTML = briefHtml(d);
     finishLoading(true, () => {
       grid.style.display = 'grid';
       renderChart(d);

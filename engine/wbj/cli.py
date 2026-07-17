@@ -117,6 +117,8 @@ def _build_packet(ticker: str) -> dict:
             "market_cap": prof0.get("mktCap"),
             "ohlcv": fmp.ohlcv_daily(ticker, years=1, today=date.today()),
             "estimates": fmp.analyst_estimates(ticker),
+            "earnings": fmp.earnings_calendar(ticker),
+            "insiders": fmp.insider_trades(ticker),
         }
     return packet
 
