@@ -9,6 +9,12 @@ the metric `CONFLICTED` when the difference is large enough that picking
 a value automatically isn't safe (materiality proxy: >5% relative
 difference, per the task-8 brief's shares/debt/cash valuation-input proxy
 for the source hierarchy's generic 5%-valuation-midpoint materiality rule).
+
+Alignment assumption: inputs to `reconcile` must already be period-,
+unit-, and currency-aligned by the caller — the Task 10 packet builder
+performs alignment and restatement-preference (SOURCE_HIERARCHY.md
+conflict-resolution steps 1-2) before calling `reconcile`. This module
+only adjudicates numeric disagreement between already-aligned values.
 """
 
 from __future__ import annotations
@@ -57,6 +63,11 @@ def reconcile(field: str, fmp: Value, edgar: Value) -> Value:
       unavailable so a lower source-quality tier was used.
     - Neither valid: EDGAR's null Value (preserves EDGAR's null-state
       lineage as the tier-1 source of truth for *why* there's no number).
+
+    Inputs must already be period/unit/currency-aligned by the caller
+    (the Task 10 packet builder performs alignment and
+    restatement-preference before calling this); `reconcile` only
+    adjudicates numeric disagreement between aligned values.
     """
     if fmp.is_valid and edgar.is_valid:
         diff = _relative_diff(fmp.value, edgar.value)
