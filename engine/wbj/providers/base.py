@@ -59,6 +59,7 @@ class Provider:
         cache_key: str,
         ticker: str,
         max_age_days: float | None = None,
+        headers: dict[str, str] | None = None,
     ) -> dict | None:
         """Fetch JSON, cache-first, with retry/backoff on transient failures.
 
@@ -70,6 +71,10 @@ class Provider:
         responses are treated as non-retryable client errors. Returns None
         (never raises) if the fetch ultimately fails; a successful response
         is written to cache before being returned.
+
+        `headers`, if given, is passed through to the underlying request
+        (e.g. a required `User-Agent` per SEC EDGAR's fair-access policy).
+        Existing callers that don't pass `headers` are unaffected.
         """
         age = self.cache.age_days(ticker, cache_key)
         if age is not None and (max_age_days is None or age <= max_age_days):
@@ -80,7 +85,7 @@ class Provider:
         for attempt in range(_MAX_ATTEMPTS):
             is_last_attempt = attempt == _MAX_ATTEMPTS - 1
             try:
-                response = self.client.get(url, params=params)
+                response = self.client.get(url, params=params, headers=headers)
             except httpx.TransportError as exc:
                 logger.warning(
                     "wbj provider request failed (attempt %d/%d) url=%s "

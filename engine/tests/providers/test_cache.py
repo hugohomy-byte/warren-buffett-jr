@@ -207,6 +207,42 @@ def test_get_json_retries_on_timeout(tmp_path):
     assert calls["n"] == 2
 
 
+def test_get_json_passes_through_custom_headers(tmp_path):
+    captured = {}
+
+    def handler(request):
+        captured["headers"] = request.headers
+        return httpx.Response(200, json={"ok": True})
+
+    p = Provider(
+        settings=None,
+        cache=Cache(tmp_path),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = p.get_json(
+        "https://x.test/a", {}, "k", "NVDA", headers={"User-Agent": "test-agent"}
+    )
+
+    assert result == {"ok": True}
+    assert captured["headers"].get("user-agent") == "test-agent"
+
+
+def test_get_json_omitted_headers_does_not_break_request(tmp_path):
+    """Existing callers that don't pass `headers` must be unaffected."""
+
+    def handler(request):
+        return httpx.Response(200, json={"ok": True})
+
+    p = Provider(
+        settings=None,
+        cache=Cache(tmp_path),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert p.get_json("https://x.test/a", {}, "k", "NVDA") == {"ok": True}
+
+
 def test_get_json_returns_none_on_malformed_json_body(tmp_path):
     def handler(request):
         return httpx.Response(200, content=b"not json", headers={"content-type": "application/json"})
