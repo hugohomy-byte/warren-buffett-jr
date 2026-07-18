@@ -15,7 +15,7 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
 
 def _load_fixture(provider: str, name: str):
-    return json.loads((FIXTURES_DIR / provider / f"{name}.json").read_text())
+    return json.loads((FIXTURES_DIR / provider / f"{name}.json").read_text(encoding="utf-8"))
 
 
 def _capturing_handler(provider, fixture_name, captured):

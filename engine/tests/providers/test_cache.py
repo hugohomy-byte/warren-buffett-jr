@@ -34,7 +34,7 @@ def test_cache_writes_expected_file_layout(tmp_path):
     c.put("NVDA", "profile", {"name": "NVIDIA"})
     path = tmp_path / "NVDA" / "profile.json"
     assert path.exists()
-    record = json.loads(path.read_text())
+    record = json.loads(path.read_text(encoding="utf-8"))
     assert record["payload"] == {"name": "NVIDIA"}
     assert "fetched_at" in record
     # fetched_at must parse as an ISO-8601 UTC timestamp
@@ -65,7 +65,7 @@ def test_get_json_refetches_when_cache_stale(tmp_path):
     cache = Cache(tmp_path)
     cache.put("NVDA", "profile", {"name": "OLD"})
     path = tmp_path / "NVDA" / "profile.json"
-    record = json.loads(path.read_text())
+    record = json.loads(path.read_text(encoding="utf-8"))
     record["fetched_at"] = (
         datetime.now(timezone.utc) - timedelta(days=10)
     ).isoformat()

@@ -55,7 +55,7 @@ DEFAULT_OHLCV_SESSIONS = 600
 
 
 def _load_fixture(provider: str, name: str):
-    return json.loads((_FIXTURES_DIR / provider / f"{name}.json").read_text())
+    return json.loads((_FIXTURES_DIR / provider / f"{name}.json").read_text(encoding="utf-8"))
 
 
 def generate_ohlcv_sessions(

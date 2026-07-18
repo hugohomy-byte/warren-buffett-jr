@@ -27,7 +27,7 @@ _FIXTURE = Path(__file__).parent.parent / "fixtures" / "packet" / "NVDA_packet.j
 
 @pytest.fixture(scope="module")
 def nvda_packet() -> Packet:
-    data = json.loads(_FIXTURE.read_text())
+    data = json.loads(_FIXTURE.read_text(encoding="utf-8"))
     return Packet.model_validate(data)
 
 

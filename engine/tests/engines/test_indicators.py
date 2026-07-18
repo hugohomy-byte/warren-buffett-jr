@@ -53,7 +53,7 @@ def constant_tr_frame(tr: float, bars: int) -> pd.DataFrame:
 
 def load_nvda_ohlcv() -> pd.DataFrame:
     """Ascending-date OHLCV DataFrame from the golden NVDA packet fixture."""
-    payload = json.loads(_FIXTURE_PATH.read_text())
+    payload = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
     rows = payload["market_data"]["daily"]
     df = pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
     df["close"] = df["adj_close"]  # use the adjusted series for calculations

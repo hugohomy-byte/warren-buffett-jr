@@ -13,7 +13,7 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "packet" / "NVDA_packet.json"
 
 @pytest.fixture(scope="module")
 def packet() -> Packet:
-    return Packet.model_validate(json.loads(_FIXTURE.read_text()))
+    return Packet.model_validate(json.loads(_FIXTURE.read_text(encoding="utf-8")))
 
 
 def test_health_is_coverage_aware():

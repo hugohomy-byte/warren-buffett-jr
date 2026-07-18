@@ -57,19 +57,35 @@ def _providers():
 
 
 def _annual_series(facts: dict, tags: list[str]) -> list[dict]:
-    """Extract annual (10-K FY) datapoints for the first tag that has data."""
+    """Extract annual (10-K FY) datapoints, preferring the tag with the
+    most recent data.
+
+    A filer can migrate us-gaap concepts over time (e.g. NVDA moved revenue
+    from RevenueFromContractWithCustomerExcludingAssessedTax to Revenues),
+    so the first tag with *any* data may be a stale one the company stopped
+    using years ago. Build the series for every candidate tag and keep the
+    one whose latest fiscal-year end is newest; ties break on `tags` order
+    (so a preferred concept like diluted shares still wins when both tags
+    report through the same year).
+    """
     gaap = facts.get("facts", {}).get("us-gaap", {})
+    best: list[dict] = []
+    best_end = ""
     for tag in tags:
         units = gaap.get(tag, {}).get("units", {})
         rows = units.get("USD") or units.get("shares") or []
         annual = [r for r in rows if r.get("form") == "10-K" and r.get("fp") == "FY"]
-        if annual:
-            # Deduplicate restatements: keep the latest filing per fiscal year end.
-            by_end: dict[str, dict] = {}
-            for r in sorted(annual, key=lambda r: r.get("filed", "")):
-                by_end[r["end"]] = r
-            return sorted(by_end.values(), key=lambda r: r["end"])
-    return []
+        if not annual:
+            continue
+        # Deduplicate restatements: keep the latest filing per fiscal year end.
+        by_end: dict[str, dict] = {}
+        for r in sorted(annual, key=lambda r: r.get("filed", "")):
+            by_end[r["end"]] = r
+        series = sorted(by_end.values(), key=lambda r: r["end"])
+        if series[-1]["end"] > best_end:
+            best_end = series[-1]["end"]
+            best = series
+    return best
 
 
 def _latest(series: list[dict]) -> float | None:
@@ -240,7 +256,7 @@ def packet(ticker: str) -> None:
     settings, _, _ = _providers()
     p = _build_packet(ticker)
     path = _out_dir(settings, ticker) / "packet.json"
-    path.write_text(json.dumps(p, indent=2))
+    path.write_text(json.dumps(p, indent=2), encoding="utf-8")
     typer.echo(f"packet -> {path}")
 
 
@@ -261,8 +277,8 @@ def analyze(ticker: str) -> None:
     result = _compute(p)
 
     out = _out_dir(settings, ticker)
-    (out / "packet.json").write_text(json.dumps(p, indent=2))
-    (out / "scores.json").write_text(json.dumps(result, indent=2))
+    (out / "packet.json").write_text(json.dumps(p, indent=2), encoding="utf-8")
+    (out / "scores.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     # Seed the agent's memory: persist today's prediction for `wbj track`.
     targets = price_targets(p, live_price(ticker, fmp_api_key=settings.fmp_api_key))
     if save_prediction(settings.reports_dir, ticker, date.today(),
@@ -293,7 +309,7 @@ def scorecard(ticker: str) -> None:
     p = _build_packet(ticker)
     sc = quick_scorecard(p)
     out = _out_dir(settings, ticker)
-    (out / "scorecard.json").write_text(json.dumps(sc, indent=2))
+    (out / "scorecard.json").write_text(json.dumps(sc, indent=2), encoding="utf-8")
 
     typer.echo(f"\n=== Quick Scorecard — {p['entity']} ({p['ticker']}) ===")
     for row in sc["categories"]:

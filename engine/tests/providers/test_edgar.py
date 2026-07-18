@@ -12,7 +12,7 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "edgar"
 
 
 def _load_fixture(name: str):
-    return json.loads((FIXTURES_DIR / f"{name}.json").read_text())
+    return json.loads((FIXTURES_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
 def _make_provider(tmp_path, handler):

@@ -19,3 +19,12 @@ Reportes/*
 Memoria/tesis/*
 !Memoria/tesis/.gitkeep
 Memoria/calibracion.md
+
+# Datos personales del inversionista — privados de este fork.
+# El perfil lleva capital, objetivos y tolerancia al riesgo reales, y la
+# memoria acumula las tesis y errores de cada analisis. Este fork es
+# publico, asi que nada de esto se versiona.
+Perfil Inversionista/*
+!Perfil Inversionista/.gitkeep
+Memoria/MEMORIA.md
+Memoria/errores.md

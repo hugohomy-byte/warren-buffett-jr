@@ -413,7 +413,7 @@ def test_merge_overlay_empty_judgments_unchanged():
 
 @pytest.fixture(scope="module")
 def nvda_packet() -> Packet:
-    return Packet.model_validate(json.loads(_FIXTURE.read_text()))
+    return Packet.model_validate(json.loads(_FIXTURE.read_text(encoding="utf-8")))
 
 
 def test_end_to_end_financial_run_answer_judgments_moves_points_and_coverage(nvda_packet):
