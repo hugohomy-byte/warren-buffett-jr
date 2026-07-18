@@ -44,3 +44,41 @@ def test_redacts_apikey_token_and_api_key_from_client_error_log(tmp_path, caplog
     assert "secret-finnhub-key" not in log_text
     assert "secret-fred-key" not in log_text
     assert "NVDA" in log_text
+
+
+# --- client-error surfacing ------------------------------------------------
+
+
+def test_quota_exhausted_flagged_on_429(tmp_path):
+    """A 429 must be distinguishable from a company genuinely lacking data."""
+
+    def handler(request):
+        return httpx.Response(429, json={"Error Message": "Limit Reach"})
+
+    p = _make_provider(tmp_path, handler)
+
+    assert p.get_json("https://example.com/x", {}, "x", "NVDA") is None
+    assert p.quota_exhausted is True
+    assert p.needs_paid_plan is False
+
+
+def test_paid_plan_flagged_on_402(tmp_path):
+    def handler(request):
+        return httpx.Response(402, json={"Error Message": "Payment Required"})
+
+    p = _make_provider(tmp_path, handler)
+
+    assert p.get_json("https://example.com/x", {}, "x", "NVDA") is None
+    assert p.needs_paid_plan is True
+    assert p.quota_exhausted is False
+
+
+def test_no_error_flags_on_success(tmp_path):
+    def handler(request):
+        return httpx.Response(200, json={"ok": True})
+
+    p = _make_provider(tmp_path, handler)
+
+    assert p.get_json("https://example.com/x", {}, "x", "NVDA") == {"ok": True}
+    assert p.client_errors == []
+    assert p.quota_exhausted is False

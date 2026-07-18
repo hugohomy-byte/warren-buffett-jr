@@ -243,6 +243,11 @@ def narrative(packet: dict, scorecard: dict, targets: dict) -> list[str]:
     elif v.get("pfcf") is not None:
         out.append(f"Cotiza a {v['pfcf']:,.1f} veces su flujo de caja libre.")
 
+    # A partial score caused by a data-provider limit must be called out, or
+    # the low number reads as a verdict on the company.
+    if packet.get("data_warning"):
+        out.append(f"⚠ {packet['data_warning']}")
+
     if scorecard.get("overall_10") is not None:
         covered = scorecard["evidence_points_covered"]
         tail = (

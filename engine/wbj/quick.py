@@ -330,10 +330,13 @@ def quick_scorecard(packet: dict) -> dict:
                              if v is not None},
             })
         else:
+            # A quota wall is why the data is missing — say so instead of
+            # blaming the company for "sin cobertura de analistas".
+            reason = packet.get("data_warning") or _NS_REASON[key]
             rows.append({
                 "key": key, "label": _QUICK_LABEL[key], "max_points": max_pts,
                 "score10": None, "points": None, "coverage": 0.0,
-                "status": "not_scorable", "reason": _NS_REASON[key],
+                "status": "not_scorable", "reason": reason,
             })
 
     overall = round(weighted / covered_pts, 1) if covered_pts else None

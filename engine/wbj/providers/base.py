@@ -47,6 +47,22 @@ class Provider:
         self.settings = settings
         self.cache = cache
         self.client = client if client is not None else httpx.Client()
+        # Client-error statuses seen this run. `get_json` swallows failures
+        # and returns None, which downstream reads as "no data" — but a
+        # quota wall (429) or a paid-tier endpoint (402) is not the same as
+        # a company genuinely lacking data, and the user needs to be told
+        # which one they hit.
+        self.client_errors: list[int] = []
+
+    @property
+    def quota_exhausted(self) -> bool:
+        """True if the API refused a request for rate/quota reasons."""
+        return 429 in self.client_errors
+
+    @property
+    def needs_paid_plan(self) -> bool:
+        """True if an endpoint required a paid plan."""
+        return 402 in self.client_errors
 
     def _sleep(self, seconds: float) -> None:
         """Sleep for `seconds`. Isolated so tests can monkeypatch it out."""
@@ -116,6 +132,7 @@ class Provider:
                 return payload
 
             if response.status_code < 500:
+                self.client_errors.append(response.status_code)
                 logger.warning(
                     "wbj provider client error status=%d url=%s params=%s",
                     response.status_code,

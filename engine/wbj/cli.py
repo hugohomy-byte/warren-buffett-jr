@@ -136,6 +136,19 @@ def _build_packet(ticker: str) -> dict:
             "earnings": fmp.earnings_calendar(ticker),
             "insiders": fmp.insider_trades(ticker),
         }
+        # A quota wall makes every FMP-backed category fall to N/S, which
+        # looks identical to "this company has no data". Say which it was.
+        if fmp.quota_exhausted:
+            packet["data_warning"] = (
+                "Se agoto la cuota diaria de FMP: las categorias de mercado, "
+                "tecnico y valuacion no se pudieron calcular. El limite se "
+                "reinicia cada 24h."
+            )
+        elif fmp.needs_paid_plan:
+            packet["data_warning"] = (
+                "Algunos datos de FMP (insiders, calendario de earnings) "
+                "requieren plan de pago; el resto del analisis no se afecta."
+            )
     return packet
 
 
