@@ -204,6 +204,45 @@ def narrative(packet: dict, scorecard: dict, targets: dict) -> list[str]:
                "deuda moderada" if de < 2.0 else "deuda alta")
         out.append(f"Debe ${de:,.2f} por cada $1 de capital propio — {adj}.")
 
+    # Market, technical and valuation come from FMP market data, so their
+    # evidence lives on the scorecard rows rather than in the annual packet.
+    ev = {r["key"]: r.get("evidence") or {} for r in scorecard.get("categories", [])}
+
+    m = ev.get("market", {})
+    if m.get("forward_rev_growth") is not None:
+        g = m["forward_rev_growth"]
+        adj = ("un salto fuerte" if g > 0.25 else "crecimiento solido" if g > 0.10 else
+               "crecimiento moderado" if g > 0.02 else "ventas casi planas" if g > -0.02 else "una caida")
+        n = m.get("analyst_breadth")
+        quien = f" Lo estiman {int(n)} analistas." if n else ""
+        out.append(f"Para el proximo año los analistas esperan {adj} en ventas ({g:+.1%}).{quien}")
+
+    t = ev.get("technical", {})
+    if t.get("price_vs_sma200") is not None:
+        v200 = t["price_vs_sma200"]
+        tendencia = ("arriba de su promedio de un año — tendencia alcista" if v200 > 1.0
+                     else "abajo de su promedio de un año — tendencia bajista")
+        out.append(f"El precio esta {abs(v200 - 1):.0%} {tendencia}.")
+    if t.get("momentum_6m") is not None:
+        mo, off = t["momentum_6m"], t.get("off_52w_high")
+        rumbo = ("subiendo con fuerza" if mo > 0.15 else "subiendo" if mo > 0.02 else
+                 "estancada" if mo > -0.02 else "bajando")
+        techo = (f" Esta {abs(off):.0%} debajo de su maximo del año." if off is not None and off < -0.01
+                 else " Cotiza en zona de maximos del año." if off is not None else "")
+        out.append(f"En los ultimos 6 meses la accion ha estado {rumbo} ({mo:+.1%}).{techo}")
+
+    v = ev.get("valuation", {})
+    if v.get("pe") is not None:
+        pe = v["pe"]
+        caro = ("muy cara" if pe > 45 else "cara" if pe > 28 else
+                "a precio razonable" if pe > 18 else "barata")
+        out.append(
+            f"Pagas ${pe:,.0f} por cada $1 de ganancia anual (P/E {pe:,.1f}) — "
+            f"esta {caro} frente a su propia utilidad."
+        )
+    elif v.get("pfcf") is not None:
+        out.append(f"Cotiza a {v['pfcf']:,.1f} veces su flujo de caja libre.")
+
     if scorecard.get("overall_10") is not None:
         covered = scorecard["evidence_points_covered"]
         tail = (

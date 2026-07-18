@@ -148,46 +148,57 @@ def _first_present(row: dict, *keys: str) -> float | None:
     return None
 
 
-def _market_category(md: dict, rev: list[dict], as_of: str) -> Category:
-    """Market & Growth (20 pts): forward revenue growth + analyst breadth."""
+def _market_category(md: dict, rev: list[dict], as_of: str) -> tuple[Category, dict]:
+    """Market & Growth (20 pts): forward revenue growth + analyst breadth.
+
+    Returns the category and the raw metrics behind it, so the score can be
+    shown with its evidence instead of as a bare number.
+    """
     row = _nearest_future_estimate(md.get("estimates"), as_of)
     latest_rev = _latest(rev)
     fwd = _first_present(row, "revenueAvg", "estimatedRevenueAvg") if row else None
     growth = (fwd / latest_rev - 1.0) if (fwd and latest_rev) else None
     breadth = _first_present(row, "numAnalystsRevenue", "numberAnalystEstimatedRevenue") if row else None
-    return Category(name="market", max_points=20.0, dimensions=[
+    cat = Category(name="market", max_points=20.0, dimensions=[
         _dim("Growth outlook", 20.0, [
             _scored(_val(growth, "forward_rev_growth"), _A_REV_GROWTH),
             _scored(_val(breadth, "analyst_breadth", unit="count"), _A_ANALYST_BREADTH),
         ]),
     ])
+    return cat, {"forward_rev_growth": growth, "analyst_breadth": breadth}
 
 
-def _technical_category(md: dict) -> Category | None:
+def _technical_category(md: dict) -> tuple[Category | None, dict]:
     """Technical & Momentum (20 pts): price vs SMA50/SMA200, 6-mo momentum,
     % off the 52-week high. Needs >=200 sessions of history (else N/S)."""
     closes = _closes_chrono(md.get("ohlcv"))
     if len(closes) < _TECHNICAL_MIN_SESSIONS:
-        return None
+        return None, {}
     price = closes[-1]
-    return Category(name="technical", max_points=20.0, dimensions=[
+    vs50 = _ratio(price, _sma(closes, 50))
+    vs200 = _ratio(price, _sma(closes, 200))
+    mom6 = _momentum(closes, 126)
+    off_high = _off_high(closes)
+    cat = Category(name="technical", max_points=20.0, dimensions=[
         _dim("Trend", 10.0, [
-            _scored(_val(_ratio(price, _sma(closes, 50)), "price_vs_sma50"), _A_PRICE_SMA),
-            _scored(_val(_ratio(price, _sma(closes, 200)), "price_vs_sma200"), _A_PRICE_SMA),
+            _scored(_val(vs50, "price_vs_sma50"), _A_PRICE_SMA),
+            _scored(_val(vs200, "price_vs_sma200"), _A_PRICE_SMA),
         ]),
         _dim("Momentum", 10.0, [
-            _scored(_val(_momentum(closes, 126), "momentum_6m"), _A_MOMENTUM_6M),
-            _scored(_val(_off_high(closes), "off_52w_high"), _A_OFF_HIGH),
+            _scored(_val(mom6, "momentum_6m"), _A_MOMENTUM_6M),
+            _scored(_val(off_high, "off_52w_high"), _A_OFF_HIGH),
         ]),
     ])
+    return cat, {"price": price, "price_vs_sma50": vs50, "price_vs_sma200": vs200,
+                 "momentum_6m": mom6, "off_52w_high": off_high}
 
 
-def _valuation_category(md: dict, annual: dict) -> Category | None:
+def _valuation_category(md: dict, annual: dict) -> tuple[Category | None, dict]:
     """Valuation (10 pts): P/E and P/FCF. A non-meaningful multiple (EPS or
     FCF <= 0) is dropped; both non-meaningful or no price -> N/S."""
     price = md.get("price")
     if not price:
-        return None
+        return None, {}
     ni_l = _latest(annual["net_income"])
     shares_l = _latest(annual.get("diluted_shares", []))
     ocf_l, capex_l = _latest(annual["operating_cash_flow"]), _latest(annual["capex"])
@@ -202,9 +213,10 @@ def _valuation_category(md: dict, annual: dict) -> Category | None:
     if pfcf is not None:
         scores.append(_scored(_val(pfcf, "pfcf", unit="x"), _A_PFCF))
     if not scores:
-        return None
-    return Category(name="valuation", max_points=10.0,
-                    dimensions=[_dim("Multiples", 10.0, scores)])
+        return None, {}
+    cat = Category(name="valuation", max_points=10.0,
+                   dimensions=[_dim("Multiples", 10.0, scores)])
+    return cat, {"pe": pe, "pfcf": pfcf, "eps": eps}
 
 
 def quick_scorecard(packet: dict) -> dict:
@@ -273,14 +285,30 @@ def quick_scorecard(packet: dict) -> dict:
     # truthful reason ("sin evidencia, no hay número").
     md = packet.get("market_data") or {}
     as_of = packet.get("as_of", "")
+    # Raw metrics behind each score, surfaced per category so a number is
+    # never shown without the evidence that produced it.
+    evidence: dict[str, dict] = {
+        "financial": {"net_margin": net_margin.value if net_margin.is_valid else None,
+                      "fcf_margin": fcf_margin.value if fcf_margin.is_valid else None,
+                      "revenue_growth": growth.value if growth.is_valid else None,
+                      "debt_to_equity": d_e.value if d_e.is_valid else None},
+        "business": {"operating_margin": op_margin.value if op_margin.is_valid else None,
+                     "gross_margin": gross_margin.value if gross_margin.is_valid else None,
+                     "margin_stability": margin_stdev.value if margin_stdev.is_valid else None,
+                     "roe": roe.value if roe.is_valid else None},
+        "risk": {"debt_to_equity": d_e.value if d_e.is_valid else None,
+                 "interest_coverage": coverage.value if coverage.is_valid else None,
+                 "fcf_margin": fcf_margin.value if fcf_margin.is_valid else None},
+    }
     fmp_builders = {
         "market": _market_category(md, rev, as_of),
         "technical": _technical_category(md),
         "valuation": _valuation_category(md, a),
     }
-    for key, cat in fmp_builders.items():
+    for key, (cat, metrics) in fmp_builders.items():
         if cat is not None and cat.coverage() > 0:
             categories[key] = cat
+            evidence[key] = metrics
 
     rows: list[dict] = []
     covered_pts = 0.0
@@ -298,6 +326,8 @@ def quick_scorecard(packet: dict) -> dict:
                 "key": key, "label": _QUICK_LABEL[key], "max_points": max_pts,
                 "score10": score10, "points": round(cat.points(), 2),
                 "coverage": round(cov, 2), "status": "scored",
+                "evidence": {k: v for k, v in evidence.get(key, {}).items()
+                             if v is not None},
             })
         else:
             rows.append({
