@@ -117,6 +117,41 @@ def test_finnhub_quote_url_and_params(tmp_path):
     assert result == _load_fixture("finnhub", "quote")
 
 
+def test_finnhub_profile_url_and_params(tmp_path):
+    captured = {}
+    p = _make_finnhub(tmp_path, _capturing_handler("finnhub", "profile", captured))
+
+    result = p.profile("NVDA")
+
+    req = captured["request"]
+    assert req.url.path == "/api/v1/stock/profile2"
+    assert req.url.params.get("symbol") == "NVDA"
+    assert result == _load_fixture("finnhub", "profile")
+
+
+def test_finnhub_metrics_url_and_params(tmp_path):
+    captured = {}
+    p = _make_finnhub(tmp_path, _capturing_handler("finnhub", "metrics", captured))
+
+    result = p.metrics("NVDA")
+
+    req = captured["request"]
+    assert req.url.path == "/api/v1/stock/metric"
+    assert req.url.params.get("symbol") == "NVDA"
+    assert req.url.params.get("metric") == "all"
+    assert result == _load_fixture("finnhub", "metrics")
+
+
+def test_finnhub_profile_and_metrics_none_without_key(tmp_path):
+    def handler(request):
+        raise AssertionError("transport should not be called when unavailable")
+
+    p = _make_finnhub(tmp_path, handler, finnhub_api_key=None)
+
+    assert p.profile("NVDA") is None
+    assert p.metrics("NVDA") is None
+
+
 def test_finnhub_methods_use_distinct_cache_keys(tmp_path):
     cache = Cache(tmp_path)
 
@@ -328,8 +363,9 @@ def _spy_get_json(provider, recorded):
 
 
 def test_finnhub_max_age_days_per_method(tmp_path):
-    """Quote must refetch daily (1); estimates/calendar weekly (7). A
-    copy-paste swap of these constants must fail this test."""
+    """Quote and metrics must refetch daily (1) since both move with price;
+    estimates/calendar/profile weekly (7). A copy-paste swap of these
+    constants must fail this test."""
 
     def handler(request):
         return httpx.Response(200, json={})
@@ -342,12 +378,16 @@ def test_finnhub_max_age_days_per_method(tmp_path):
     p.estimates("NVDA")
     p.revenue_estimates("NVDA")
     p.earnings_calendar("NVDA")
+    p.profile("NVDA")
+    p.metrics("NVDA")
 
     assert recorded == {
         "quote": 1,
         "estimates": 7,
         "revenue_estimates": 7,
         "earnings_calendar": 7,
+        "profile": 7,
+        "metrics": 1,
     }
 
 

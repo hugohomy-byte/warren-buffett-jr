@@ -1,0 +1,15 @@
+{
+  "ticker": "NVDA",
+  "name": "NVIDIA Corp",
+  "country": "US",
+  "currency": "USD",
+  "estimateCurrency": "USD",
+  "exchange": "NASDAQ NMS - GLOBAL MARKET",
+  "ipo": "1999-01-22",
+  "marketCapitalization": 4912261.01,
+  "shareOutstanding": 24220.0,
+  "finnhubIndustry": "Semiconductors",
+  "logo": "https://static2.finnhub.io/file/publicdatany/finnhubimage/stock_logo/NVDA.svg",
+  "phone": "14084862000",
+  "weburl": "https://www.nvidia.com/"
+}

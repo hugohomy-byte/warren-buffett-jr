@@ -1,0 +1,25 @@
+{
+  "symbol": "NVDA",
+  "metricType": "all",
+  "metric": {
+    "52WeekHigh": 236.54,
+    "52WeekHighDate": "2026-06-12",
+    "52WeekLow": 86.62,
+    "52WeekLowDate": "2025-08-01",
+    "52WeekPriceReturnDaily": 71.4321,
+    "26WeekPriceReturnDaily": 10.7412,
+    "13WeekPriceReturnDaily": 4.2185,
+    "5DayPriceReturnDaily": -2.1043,
+    "yearToDatePriceReturnDaily": 18.9922,
+    "beta": 2.211,
+    "epsTTM": 4.8981,
+    "peTTM": 41.4083,
+    "psTTM": 22.7431,
+    "currentRatioAnnual": 4.4412,
+    "currentRatioQuarterly": 4.1108,
+    "totalDebt/totalEquityAnnual": 0.0475,
+    "totalDebt/totalEquityQuarterly": 0.0512,
+    "netProfitMarginTTM": 55.6012,
+    "roeTTM": 101.5433
+  }
+}

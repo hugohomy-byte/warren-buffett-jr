@@ -1,7 +1,8 @@
 """FinnHub provider.
 
 Wraps a slice of the FinnHub REST API: consensus EPS/revenue estimates,
-the earnings calendar, and real-time quote. `FinnhubProvider` is disabled
+the earnings calendar, real-time quote, company profile and the
+precomputed metric bundle. `FinnhubProvider` is disabled
 (`available == False`) when no API key is configured; every public
 method then returns `None` immediately without touching the cache or the
 network. Requests and caching are delegated to
@@ -10,6 +11,11 @@ URLs/params and picks cache keys / max_age_days per data type.
 
 FinnHub's key is passed as the `token` query param; `base.Provider`
 already redacts `token` from logged request params.
+
+Free-tier note: `estimates`/`revenue_estimates` and daily candles are
+paid-only (403), but `quote`, `profile` and `metrics` are not — and
+`metrics` already carries 52-week high/low and trailing price returns,
+which is enough to score technical/valuation without price history.
 """
 
 from __future__ import annotations
@@ -25,6 +31,10 @@ BASE_URL = "https://finnhub.io/api/v1"
 _MAX_AGE_QUOTE = 1
 _MAX_AGE_ESTIMATES = 7
 _MAX_AGE_CALENDAR = 7
+# metrics move with price (52w high, trailing returns) -> refresh daily;
+# profile is reference data -> weekly, same as other providers.
+_MAX_AGE_METRICS = 1
+_MAX_AGE_PROFILE = 7
 
 
 class FinnhubProvider(Provider):
@@ -86,4 +96,33 @@ class FinnhubProvider(Provider):
             "quote",
             t,
             max_age_days=_MAX_AGE_QUOTE,
+        )
+
+    def profile(self, t: str) -> list | dict | None:
+        """Company profile: name, country, exchange, market cap (in millions)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/stock/profile2",
+            self._params(symbol=t),
+            "profile",
+            t,
+            max_age_days=_MAX_AGE_PROFILE,
+        )
+
+    def metrics(self, t: str) -> list | dict | None:
+        """Precomputed fundamentals/price metrics (`metric=all`).
+
+        Carries 52WeekHigh/Low, trailing price returns (5D..52W), peTTM,
+        psTTM, epsTTM, beta and debt/equity — the inputs needed to score
+        technical and valuation when daily candles aren't available.
+        """
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/stock/metric",
+            self._params(symbol=t, metric="all"),
+            "metrics",
+            t,
+            max_age_days=_MAX_AGE_METRICS,
         )

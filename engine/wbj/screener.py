@@ -89,7 +89,7 @@ def screen(limit: int = 15, progress=None) -> list[dict]:
     from wbj.quick import quick_scorecard
     from wbj.targets import live_price, price_targets
 
-    settings, edgar, _fmp = _providers()
+    settings, edgar, *_ = _providers()
     year = date.today().year - 1  # latest complete calendar year
     candidates = prefilter(edgar, year)
 

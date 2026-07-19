@@ -168,12 +168,41 @@ def _market_category(md: dict, rev: list[dict], as_of: str) -> tuple[Category, d
     return cat, {"forward_rev_growth": growth, "analyst_breadth": breadth}
 
 
+def _technical_from_metrics(md: dict) -> tuple[Category | None, dict]:
+    """Technical & Momentum from FinnHub's precomputed metric bundle.
+
+    Fallback for when daily candles aren't available (FMP quota spent,
+    FinnHub candles being paid-only). Trailing returns and the 52-week high
+    are already computed upstream, so momentum and drawdown score normally;
+    the SMA trend dimension has no substitute and is simply not scored,
+    which lowers coverage rather than inventing a number.
+    """
+    m = md.get("metrics") or {}
+    price = md.get("price")
+    high52 = m.get("52WeekHigh")
+    # FinnHub reports returns as percentages (10.74 == +10.74%).
+    mom6 = m.get("26WeekPriceReturnDaily")
+    mom6 = mom6 / 100.0 if mom6 is not None else None
+    off_high = (price / high52 - 1.0) if (price and high52) else None
+    scores = [s for s in (
+        _scored(_val(mom6, "momentum_6m"), _A_MOMENTUM_6M) if mom6 is not None else None,
+        _scored(_val(off_high, "off_52w_high"), _A_OFF_HIGH) if off_high is not None else None,
+    ) if s is not None]
+    if not scores:
+        return None, {}
+    cat = Category(name="technical", max_points=20.0,
+                   dimensions=[_dim("Momentum", 20.0, scores)])
+    return cat, {"price": price, "momentum_6m": mom6, "off_52w_high": off_high,
+                 "52w_high": high52, "source": "finnhub"}
+
+
 def _technical_category(md: dict) -> tuple[Category | None, dict]:
     """Technical & Momentum (20 pts): price vs SMA50/SMA200, 6-mo momentum,
-    % off the 52-week high. Needs >=200 sessions of history (else N/S)."""
+    % off the 52-week high. Needs >=200 sessions of history; falls back to
+    FinnHub's precomputed metrics when history is short or absent."""
     closes = _closes_chrono(md.get("ohlcv"))
     if len(closes) < _TECHNICAL_MIN_SESSIONS:
-        return None, {}
+        return _technical_from_metrics(md)
     price = closes[-1]
     vs50 = _ratio(price, _sma(closes, 50))
     vs200 = _ratio(price, _sma(closes, 200))
@@ -205,6 +234,11 @@ def _valuation_category(md: dict, annual: dict) -> tuple[Category | None, dict]:
     eps = (ni_l / shares_l) if (ni_l is not None and shares_l) else None
     fcf = (ocf_l - capex_l) if (ocf_l is not None and capex_l is not None) else None
     pe = (price / eps) if (eps and eps > 0) else None
+    if pe is None:
+        # EDGAR didn't report diluted shares (common for recent filers), so
+        # the P/E can't be derived. FinnHub ships a trailing P/E already.
+        fh_pe = (md.get("metrics") or {}).get("peTTM")
+        pe = fh_pe if (fh_pe and fh_pe > 0) else None
     pfcf = (md.get("market_cap") / fcf) if (md.get("market_cap") and fcf and fcf > 0) else None
 
     scores: list[Value] = []

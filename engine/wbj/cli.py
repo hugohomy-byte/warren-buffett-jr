@@ -19,6 +19,7 @@ from wbj.core.scoring import Category, Dimension, anchor_score
 from wbj.core.formulas import yoy
 from wbj.providers.cache import Cache
 from wbj.providers.edgar import EdgarProvider
+from wbj.providers.finnhub import FinnhubProvider
 from wbj.providers.fmp import FMPProvider
 from wbj.quick import quick_scorecard
 
@@ -53,7 +54,8 @@ _ANCHORS_DEBT_EQUITY = [(0.0, 10.0), (0.5, 8.0), (1.0, 6.0), (2.0, 3.0), (4.0, 0
 def _providers():
     settings = load_settings()
     cache = Cache(settings.cache_dir)
-    return settings, EdgarProvider(settings, cache), FMPProvider(settings, cache)
+    return (settings, EdgarProvider(settings, cache), FMPProvider(settings, cache),
+            FinnhubProvider(settings, cache))
 
 
 def _annual_series(facts: dict, tags: list[str]) -> list[dict]:
@@ -93,7 +95,7 @@ def _latest(series: list[dict]) -> float | None:
 
 
 def _build_packet(ticker: str) -> dict:
-    settings, edgar, fmp = _providers()
+    settings, edgar, fmp, finnhub = _providers()
     cik = edgar.cik_for(ticker)
     if cik is None:
         raise typer.BadParameter(f"Ticker {ticker!r} not found in SEC EDGAR.")
@@ -120,6 +122,7 @@ def _build_packet(ticker: str) -> dict:
             "diluted_shares": _annual_series(facts, _SHARES_TAGS),
         },
     }
+    md: dict = {}
     if fmp.available:
         profile = fmp.profile(ticker)
         packet["fmp_profile"] = profile
@@ -128,7 +131,7 @@ def _build_packet(ticker: str) -> dict:
         # Phase 1 quick FMP scoring: raw price/estimates only — every
         # indicator (SMA/momentum, multiples) is derived downstream in
         # quick.py. Missing sub-keys keep the dependent category N/S.
-        packet["market_data"] = {
+        md = {
             "price": prof0.get("price"),
             "market_cap": prof0.get("mktCap"),
             "ohlcv": fmp.ohlcv_daily(ticker, years=1, today=date.today()),
@@ -136,19 +139,55 @@ def _build_packet(ticker: str) -> dict:
             "earnings": fmp.earnings_calendar(ticker),
             "insiders": fmp.insider_trades(ticker),
         }
-        # A quota wall makes every FMP-backed category fall to N/S, which
-        # looks identical to "this company has no data". Say which it was.
-        if fmp.quota_exhausted:
-            packet["data_warning"] = (
-                "Se agoto la cuota diaria de FMP: las categorias de mercado, "
-                "tecnico y valuacion no se pudieron calcular. El limite se "
-                "reinicia cada 24h."
-            )
-        elif fmp.needs_paid_plan:
-            packet["data_warning"] = (
-                "Algunos datos de FMP (insiders, calendario de earnings) "
-                "requieren plan de pago; el resto del analisis no se afecta."
-            )
+
+    # FinnHub backfill. FMP's free tier has a daily request cap, and hitting
+    # it zeroes price/history/estimates at once — which silently drops
+    # market, technical and valuation to N/S. FinnHub's free tier is capped
+    # per minute instead, so it is still answering when FMP has stopped.
+    # It fills gaps only: anything FMP already returned is left untouched.
+    if finnhub.available and not all(md.get(k) for k in ("price", "market_cap", "ohlcv")):
+        if not md.get("price"):
+            quote = finnhub.quote(ticker)
+            if isinstance(quote, dict) and quote.get("c"):
+                md["price"] = quote["c"]
+        if not md.get("market_cap"):
+            fh_prof = finnhub.profile(ticker)
+            if isinstance(fh_prof, dict) and fh_prof.get("marketCapitalization"):
+                # FinnHub reports market cap in millions; the rest of the
+                # engine works in absolute USD.
+                md["market_cap"] = fh_prof["marketCapitalization"] * 1e6
+        if not md.get("ohlcv"):
+            # Daily candles are paid-only on FinnHub, but the metric bundle
+            # carries 52-week high/low and trailing returns, which is what
+            # the technical category actually needs.
+            fh_metrics = finnhub.metrics(ticker)
+            if isinstance(fh_metrics, dict) and fh_metrics.get("metric"):
+                md["metrics"] = fh_metrics["metric"]
+
+    if md:
+        packet["market_data"] = md
+    packet["sources"]["finnhub"] = bool(md.get("metrics") or md.get("price"))
+
+    # A quota wall makes FMP-backed categories fall to N/S, which looks
+    # identical to "this company has no data". Say which it was — unless
+    # FinnHub already covered the gap.
+    covered = bool(md.get("price") and (md.get("ohlcv") or md.get("metrics")))
+    if fmp.quota_exhausted and not covered:
+        packet["data_warning"] = (
+            "Se agoto la cuota diaria de FMP: las categorias de mercado, "
+            "tecnico y valuacion no se pudieron calcular. El limite se "
+            "reinicia cada 24h."
+        )
+    elif fmp.quota_exhausted:
+        packet["data_warning"] = (
+            "Se agoto la cuota diaria de FMP; los datos de mercado vienen "
+            "de FinnHub. Faltan los estimados de analistas."
+        )
+    elif fmp.needs_paid_plan:
+        packet["data_warning"] = (
+            "Algunos datos de FMP (insiders, calendario de earnings) "
+            "requieren plan de pago; el resto del analisis no se afecta."
+        )
     return packet
 
 
@@ -253,7 +292,7 @@ def _out_dir(settings, ticker: str) -> Path:
 @app.command()
 def fetch(ticker: str) -> None:
     """Fetch raw EDGAR data for a ticker (cache-first)."""
-    _, edgar, _ = _providers()
+    _, edgar, *_ = _providers()
     cik = edgar.cik_for(ticker)
     if cik is None:
         typer.echo(f"{ticker}: not found in EDGAR")
@@ -266,7 +305,7 @@ def fetch(ticker: str) -> None:
 @app.command()
 def packet(ticker: str) -> None:
     """Build and save the data packet for a ticker."""
-    settings, _, _ = _providers()
+    settings, *_ = _providers()
     p = _build_packet(ticker)
     path = _out_dir(settings, ticker) / "packet.json"
     path.write_text(json.dumps(p, indent=2), encoding="utf-8")
@@ -285,7 +324,7 @@ def analyze(ticker: str) -> None:
     from wbj.memoria import save_prediction
     from wbj.targets import live_price, price_targets
 
-    settings, _, _ = _providers()
+    settings, *_ = _providers()
     p = _build_packet(ticker)
     result = _compute(p)
 
@@ -318,7 +357,7 @@ def analyze(ticker: str) -> None:
 @app.command()
 def scorecard(ticker: str) -> None:
     """Quick 1-10 scorecard across the 6 agent categories."""
-    settings, _, _ = _providers()
+    settings, *_ = _providers()
     p = _build_packet(ticker)
     sc = quick_scorecard(p)
     out = _out_dir(settings, ticker)
@@ -341,7 +380,7 @@ def track() -> None:
     from wbj.memoria import track as run_track
     from wbj.targets import live_price
 
-    settings, _, _ = _providers()
+    settings, *_ = _providers()
     memoria_dir = settings.repo_root / "Memoria"
     s = run_track(settings.reports_dir, memoria_dir,
                   lambda t: live_price(t, fmp_api_key=settings.fmp_api_key),

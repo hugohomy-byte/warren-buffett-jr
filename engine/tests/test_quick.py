@@ -1,5 +1,7 @@
 """Tests for the quick 6-category scorecard."""
 
+import pytest
+
 from wbj.quick import quick_scorecard
 
 
@@ -140,6 +142,63 @@ def test_technical_ns_with_too_little_history():
     p["market_data"] = {"ohlcv": _ohlcv_rising(30)}  # < 200 sessions
     t = _by_key(quick_scorecard(p))["technical"]
     assert t["status"] == "not_scorable"
+
+
+# --- FinnHub backfill (used when FMP's daily quota is spent) --------------
+
+
+def test_technical_scores_from_finnhub_metrics_without_history():
+    """No candles, but FinnHub's trailing returns still score momentum."""
+    p = _packet()
+    p["market_data"] = {
+        "price": 200.0,
+        "metrics": {"26WeekPriceReturnDaily": 10.74, "52WeekHigh": 236.54},
+    }
+    t = _by_key(quick_scorecard(p))["technical"]
+    assert t["status"] == "scored"
+    assert 0 <= t["score10"] <= 10
+    ev = t["evidence"]
+    assert ev["source"] == "finnhub"
+    assert ev["momentum_6m"] == pytest.approx(0.1074)  # percent -> ratio
+    assert ev["off_52w_high"] == pytest.approx(200.0 / 236.54 - 1)
+
+
+def test_technical_prefers_real_history_over_metrics():
+    """With enough candles the SMA path wins; metrics are the fallback."""
+    p = _packet()
+    p["market_data"] = {
+        "ohlcv": _ohlcv_rising(220),
+        "metrics": {"26WeekPriceReturnDaily": 10.74, "52WeekHigh": 236.54},
+    }
+    t = _by_key(quick_scorecard(p))["technical"]
+    assert t["status"] == "scored"
+    assert "price_vs_sma200" in t["evidence"]
+    assert t["evidence"].get("source") != "finnhub"
+
+
+def test_technical_ns_when_metrics_lack_usable_fields():
+    p = _packet()
+    p["market_data"] = {"price": 200.0, "metrics": {"beta": 2.2}}
+    t = _by_key(quick_scorecard(p))["technical"]
+    assert t["status"] == "not_scorable"
+
+
+def test_valuation_falls_back_to_finnhub_pe_without_shares():
+    """EDGAR often omits diluted shares, so P/E can't be derived locally."""
+    p = _packet()
+    p["annual"]["diluted_shares"] = []
+    p["market_data"] = {"price": 200.0, "metrics": {"peTTM": 41.4}}
+    v = _by_key(quick_scorecard(p))["valuation"]
+    assert v["status"] == "scored"
+    assert v["evidence"]["pe"] == pytest.approx(41.4)
+
+
+def test_valuation_ignores_nonpositive_finnhub_pe():
+    p = _packet()
+    p["annual"]["diluted_shares"] = []
+    p["market_data"] = {"price": 200.0, "metrics": {"peTTM": -12.0}}
+    v = _by_key(quick_scorecard(p))["valuation"]
+    assert v["status"] == "not_scorable"
 
 
 def test_valuation_ns_without_price():
