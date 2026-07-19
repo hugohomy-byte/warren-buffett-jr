@@ -89,6 +89,11 @@ def analyze(ticker: str) -> dict:
     save_prediction(settings.reports_dir, ticker, date.today(),
                     result["scorecard"], targets)
     result["targets"] = targets
+    # Provider-limit notice lives on the packet; surface it on the payload
+    # so the page can flag a partial score instead of it reading as a
+    # verdict on the company.
+    if packet.get("data_warning"):
+        result["data_warning"] = packet["data_warning"]
     result["narrative"] = narrative(packet, result["scorecard"], targets)
     result["brief"] = company_brief(packet, result["scorecard"], targets)
     result["history"] = _history(packet)
