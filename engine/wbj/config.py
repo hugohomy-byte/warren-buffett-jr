@@ -22,6 +22,11 @@ class Settings:
     finnhub_api_key: str | None = None
     fred_api_key: str | None = None
     anthropic_api_key: str | None = None
+    # FMP's free tier returns 402 for insider-trading and the earnings
+    # calendar. Calling them anyway just burns the daily quota on a refusal,
+    # so they're skipped unless the user declares a paid plan (FMP_PAID_PLAN=1
+    # in API/.env). Set it and those two sections light up.
+    fmp_paid_plan: bool = False
     # Model for the qualitative judgment agent; override to cut cost (e.g.
     # "claude-haiku-4-5"). Default per the Anthropic SDK guidance.
     judge_model: str = "claude-opus-4-8"
@@ -71,6 +76,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
         env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or None
     )
     judge_model = env_vars.get("JUDGE_MODEL") or "claude-opus-4-8"
+    fmp_paid_plan = str(env_vars.get("FMP_PAID_PLAN") or "").strip().lower() in (
+        "1", "true", "yes", "si", "sí"
+    )
 
     return Settings(
         fmp_api_key=fmp_api_key,
@@ -78,6 +86,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         fred_api_key=fred_api_key,
         anthropic_api_key=anthropic_api_key,
         judge_model=judge_model,
+        fmp_paid_plan=fmp_paid_plan,
         repo_root=repo_root,
         cache_dir=repo_root / "engine" / "cache",
         reports_dir=repo_root / "Reportes",

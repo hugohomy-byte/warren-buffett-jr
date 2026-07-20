@@ -124,6 +124,10 @@ PAGE = """<!doctype html>
     border:0; border-radius:14px; background:var(--purple); color:#fff; cursor:pointer;
     box-shadow:0 1px 3px rgba(20,22,30,.15); white-space:nowrap; }
   .discover:hover { filter:brightness(1.08); }
+  .analyze { font:inherit; font-size:14.5px; font-weight:700; padding:0 26px;
+    border:0; border-radius:14px; background:var(--green); color:#fff; cursor:pointer;
+    box-shadow:0 1px 3px rgba(20,22,30,.15); white-space:nowrap; }
+  .analyze:hover { filter:brightness(1.08); }
   table.scr { width:100%; border-collapse:collapse; margin-top:14px; font-size:13.5px; }
   table.scr th { text-align:left; font-size:11.5px; text-transform:uppercase;
     letter-spacing:.08em; color:var(--muted); padding:0 10px 10px 0; font-weight:600; }
@@ -339,6 +343,7 @@ PAGE = """<!doctype html>
           autocomplete="off" autofocus>
         <div class="sugg" id="sugg"></div>
       </div>
+      <button class="analyze" id="analyzeBtn">Analizar</button>
       <button class="discover" id="discoverBtn">✨ Descubrir empresas</button>
     </div>
   </header>
@@ -440,13 +445,25 @@ q.addEventListener('input', () => {
 });
 q.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
+    e.preventDefault();
+    // Cancel the pending search debounce so it can't reopen the dropdown
+    // over the results after we've already launched the analysis.
+    clearTimeout(timer);
     const first = sugg.querySelector('button');
-    run(first ? first.dataset.t : q.value.trim().toUpperCase());
+    const ticker = first ? first.dataset.t : q.value.trim().toUpperCase();
+    if (ticker) run(ticker);
   }
 });
 sugg.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (b) run(b.dataset.t);
+});
+// Explicit button: the same action as Enter, but impossible to miss.
+document.getElementById('analyzeBtn').addEventListener('click', () => {
+  clearTimeout(timer);
+  const first = sugg.querySelector('button');
+  const ticker = first ? first.dataset.t : q.value.trim().toUpperCase();
+  if (ticker) run(ticker);
 });
 
 const fmtB = x => '$' + (x / 1e9).toFixed(1) + 'B';

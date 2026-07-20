@@ -84,8 +84,14 @@ def test_no_error_flags_on_success(tmp_path):
     assert p.quota_exhausted is False
 
 
-def test_paid_endpoint_is_skipped_on_later_calls(tmp_path):
-    """402 must be remembered: re-calling would spend quota to be refused."""
+def test_402_does_not_disable_endpoint_for_other_tickers(tmp_path):
+    """A 402 flags needs_paid_plan but must NOT silently skip later calls.
+
+    FMP sometimes returns 402 for a quota wall, not only for paid endpoints,
+    so a 402 must never permanently disable an endpoint — each ticker still
+    hits the network. Which endpoints are paid is decided explicitly by the
+    provider (fmp_paid_plan), not learned from a 402 at runtime.
+    """
     calls = []
 
     def handler(request):
@@ -95,36 +101,6 @@ def test_paid_endpoint_is_skipped_on_later_calls(tmp_path):
     p = _make_provider(tmp_path, handler)
 
     assert p.get_json("https://example.com/insiders", {}, "insiders", "NVDA") is None
-    assert len(calls) == 1
-
-    # Same endpoint, different ticker: still skipped, no second request.
     assert p.get_json("https://example.com/insiders", {}, "insiders", "AAPL") is None
-    assert len(calls) == 1
+    assert len(calls) == 2  # both hit the network; no silent skipping
     assert p.needs_paid_plan is True
-
-
-def test_paywall_note_does_not_block_other_endpoints(tmp_path):
-    def handler(request):
-        if "insiders" in request.url.path:
-            return httpx.Response(402, json={})
-        return httpx.Response(200, json={"ok": True})
-
-    p = _make_provider(tmp_path, handler)
-
-    assert p.get_json("https://example.com/insiders", {}, "insiders", "NVDA") is None
-    assert p.get_json("https://example.com/profile", {}, "profile", "NVDA") == {"ok": True}
-
-
-def test_quota_error_is_not_remembered_as_paywall(tmp_path):
-    """429 is transient — it must not permanently disable the endpoint."""
-    calls = []
-
-    def handler(request):
-        calls.append(1)
-        return httpx.Response(429, json={})
-
-    p = _make_provider(tmp_path, handler)
-
-    p.get_json("https://example.com/x", {}, "x", "NVDA")
-    p.get_json("https://example.com/x", {}, "x", "AAPL")
-    assert len(calls) == 2

@@ -173,8 +173,12 @@ class FMPProvider(Provider):
         )
 
     def insider_trades(self, t: str) -> list | dict | None:
-        """SEC Form 4 insider trades, most recent 200."""
-        if not self.available:
+        """SEC Form 4 insider trades, most recent 200.
+
+        Paid-plan endpoint: on the free tier FMP answers 402, which only
+        burns the daily quota, so it's skipped unless `fmp_paid_plan` is set.
+        """
+        if not self.available or not getattr(self.settings, "fmp_paid_plan", False):
             return None
         return self.get_json(
             f"{BASE_URL}/insider-trading/search",
@@ -193,8 +197,12 @@ class FMPProvider(Provider):
         )
 
     def earnings_calendar(self, t: str) -> list | dict | None:
-        """Earnings calendar (actual vs. estimated EPS/revenue)."""
-        if not self.available:
+        """Earnings calendar (actual vs. estimated EPS/revenue).
+
+        Paid-plan endpoint: on the free tier FMP answers 402, which only
+        burns the daily quota, so it's skipped unless `fmp_paid_plan` is set.
+        """
+        if not self.available or not getattr(self.settings, "fmp_paid_plan", False):
             return None
         return self.get_json(
             f"{BASE_URL}/earnings",

@@ -17,9 +17,14 @@ def _load_fixture(name: str):
     return json.loads((FIXTURES_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
-def _make_provider(tmp_path, handler, fmp_api_key="testkey"):
-    """Build an FMPProvider wired to a MockTransport-backed httpx.Client."""
-    settings = Settings(fmp_api_key=fmp_api_key)
+def _make_provider(tmp_path, handler, fmp_api_key="testkey", fmp_paid_plan=True):
+    """Build an FMPProvider wired to a MockTransport-backed httpx.Client.
+
+    Defaults to `fmp_paid_plan=True` so URL/param tests exercise the
+    paid-only endpoints (insiders, earnings); the free-tier skip is covered
+    separately.
+    """
+    settings = Settings(fmp_api_key=fmp_api_key, fmp_paid_plan=fmp_paid_plan)
     cache = Cache(tmp_path)
     client = httpx.Client(transport=httpx.MockTransport(handler))
     return FMPProvider(settings, cache, client=client)
@@ -316,6 +321,19 @@ def test_earnings_calendar_url_and_params(tmp_path):
     assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("limit") == "40"
     assert result == _load_fixture("earnings_calendar")
+
+
+def test_paid_endpoints_skipped_without_paid_plan(tmp_path):
+    """On the free tier, insiders/earnings must not hit the network at all —
+    FMP would answer 402 and only waste the daily quota."""
+
+    def handler(request):
+        raise AssertionError(f"paid endpoint called on free tier: {request.url.path}")
+
+    p = _make_provider(tmp_path, handler, fmp_paid_plan=False)
+
+    assert p.insider_trades("NVDA") is None
+    assert p.earnings_calendar("NVDA") is None
 
 
 # --- caching: distinct cache keys per method --------------------------------

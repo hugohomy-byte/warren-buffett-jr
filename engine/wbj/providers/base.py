@@ -21,12 +21,6 @@ _MAX_ATTEMPTS = 3
 _BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 _REDACTED_PARAMS = frozenset({"apikey", "token", "api_key"})
 
-# Paid-tier refusals (402) are remembered per endpoint, not per ticker, so
-# the note lives under a pseudo-ticker. It expires after a week so an
-# upgraded plan starts working without clearing the cache by hand.
-_PAYWALL_TICKER = "_ENDPOINTS"
-_PAYWALL_TTL_DAYS = 7.0
-
 
 def _redact_params(params: dict[str, Any] | None) -> dict[str, Any]:
     """Copy `params` with sensitive values masked, safe to put in log text."""
@@ -74,20 +68,6 @@ class Provider:
         """Sleep for `seconds`. Isolated so tests can monkeypatch it out."""
         time.sleep(seconds)
 
-    def _paywall_key(self, cache_key: str) -> str:
-        return f"_paywalled_{cache_key}"
-
-    def _is_paywalled(self, cache_key: str) -> bool:
-        """True if this endpoint answered 402 recently for any ticker.
-
-        A paid-tier endpoint answers 402 forever on a free key, but the
-        request still counts against the daily quota. Remembering the
-        refusal keeps those calls from burning quota that the scorable
-        endpoints need. The note expires so a plan upgrade is picked up.
-        """
-        age = self.cache.age_days(_PAYWALL_TICKER, self._paywall_key(cache_key))
-        return age is not None and age <= _PAYWALL_TTL_DAYS
-
     def get_json(
         self,
         url: str,
@@ -115,17 +95,6 @@ class Provider:
         age = self.cache.age_days(ticker, cache_key)
         if age is not None and (max_age_days is None or age <= max_age_days):
             return self.cache.get(ticker, cache_key)
-
-        # Skip endpoints already known to need a paid plan: the call would
-        # spend quota only to be refused again.
-        if self._is_paywalled(cache_key):
-            logger.debug(
-                "wbj provider skipping paid-tier endpoint key=%s ticker=%s",
-                cache_key,
-                ticker,
-            )
-            self.client_errors.append(402)
-            return None
 
         safe_params = _redact_params(params)
 
@@ -164,12 +133,6 @@ class Provider:
 
             if response.status_code < 500:
                 self.client_errors.append(response.status_code)
-                if response.status_code == 402:
-                    # Remember the refusal so later runs don't re-spend quota
-                    # rediscovering that this endpoint is paid-only.
-                    self.cache.put(
-                        _PAYWALL_TICKER, self._paywall_key(cache_key), {"status": 402}
-                    )
                 logger.warning(
                     "wbj provider client error status=%d url=%s params=%s",
                     response.status_code,
