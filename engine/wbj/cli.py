@@ -133,7 +133,9 @@ def _build_packet(ticker: str) -> dict:
         # quick.py. Missing sub-keys keep the dependent category N/S.
         md = {
             "price": prof0.get("price"),
-            "market_cap": prof0.get("mktCap"),
+            # FMP's stable profile returns `marketCap` (the legacy v3 API used
+            # `mktCap`); reading the old name silently zeroed market cap.
+            "market_cap": prof0.get("marketCap") or prof0.get("mktCap"),
             "ohlcv": fmp.ohlcv_daily(ticker, years=1, today=date.today()),
             "estimates": fmp.analyst_estimates(ticker),
             "earnings": fmp.earnings_calendar(ticker),
@@ -184,9 +186,16 @@ def _build_packet(ticker: str) -> dict:
             "de FinnHub. Faltan los estimados de analistas."
         )
     elif fmp.needs_paid_plan:
+        # FMP restricts history/estimates for some small or newly-listed
+        # companies on the free tier (402). FinnHub covers price, market cap
+        # and technical metrics, but analyst estimates aren't free anywhere,
+        # so Market & Growth may stay N/S. Say that plainly instead of
+        # blaming the company.
         packet["data_warning"] = (
-            "Algunos datos de FMP (insiders, calendario de earnings) "
-            "requieren plan de pago; el resto del analisis no se afecta."
+            "FMP no entrega en el plan gratuito parte de los datos de esta "
+            "empresa (comun en companias pequenas o recien listadas); se "
+            "completo con FinnHub donde fue posible. Pueden faltar los "
+            "estimados de analistas (Market & Growth)."
         )
     return packet
 

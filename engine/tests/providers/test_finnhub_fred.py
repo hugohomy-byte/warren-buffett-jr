@@ -170,13 +170,13 @@ def test_finnhub_methods_use_distinct_cache_keys(tmp_path):
     p.estimates("NVDA")
     p.quote("NVDA")
 
-    assert cache.get("NVDA", "estimates") == _load_fixture("finnhub", "eps_estimate")
-    assert cache.get("NVDA", "quote") == _load_fixture("finnhub", "quote")
+    assert cache.get("NVDA", "fh_estimates") == _load_fixture("finnhub", "eps_estimate")
+    assert cache.get("NVDA", "fh_quote") == _load_fixture("finnhub", "quote")
 
 
 def test_finnhub_get_json_serves_from_cache_without_hitting_transport(tmp_path):
     cache = Cache(tmp_path)
-    cache.put("NVDA", "quote", _load_fixture("finnhub", "quote"))
+    cache.put("NVDA", "fh_quote", _load_fixture("finnhub", "quote"))
 
     def handler(request):
         raise AssertionError("transport should not be called on cache hit")
@@ -382,13 +382,35 @@ def test_finnhub_max_age_days_per_method(tmp_path):
     p.metrics("NVDA")
 
     assert recorded == {
-        "quote": 1,
-        "estimates": 7,
-        "revenue_estimates": 7,
-        "earnings_calendar": 7,
-        "profile": 7,
-        "metrics": 1,
+        "fh_quote": 1,
+        "fh_estimates": 7,
+        "fh_revenue_estimates": 7,
+        "fh_earnings_calendar": 7,
+        "fh_profile": 7,
+        "fh_metrics": 1,
     }
+
+
+def test_finnhub_cache_keys_do_not_collide_with_fmp(tmp_path):
+    """FinnHub and FMP both fetch a 'profile'; without a namespace they'd
+    share cache/<TICKER>/profile.json and read each other's payloads. The
+    FinnHub keys must be prefixed so a fallback reads FinnHub's own data."""
+    from wbj.providers.fmp import FMPProvider
+
+    cache = Cache(tmp_path)
+    fh_settings = Settings(finnhub_api_key="k")
+    fmp_settings = Settings(fmp_api_key="k")
+
+    fh = FinnhubProvider(fh_settings, cache, client=httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"src": "finnhub"}))))
+    fmp = FMPProvider(fmp_settings, cache, client=httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[{"src": "fmp"}]))))
+
+    fmp.profile("NVDA")
+    fh.profile("NVDA")
+
+    assert cache.get("NVDA", "profile") == [{"src": "fmp"}]
+    assert cache.get("NVDA", "fh_profile") == {"src": "finnhub"}
 
 
 def test_fred_series_max_age_days_is_1(tmp_path):

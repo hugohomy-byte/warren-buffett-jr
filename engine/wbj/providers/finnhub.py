@@ -57,7 +57,7 @@ class FinnhubProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/stock/eps-estimate",
             self._params(symbol=t),
-            "estimates",
+            "fh_estimates",
             t,
             max_age_days=_MAX_AGE_ESTIMATES,
         )
@@ -69,7 +69,7 @@ class FinnhubProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/stock/revenue-estimate",
             self._params(symbol=t),
-            "revenue_estimates",
+            "fh_revenue_estimates",
             t,
             max_age_days=_MAX_AGE_ESTIMATES,
         )
@@ -81,7 +81,7 @@ class FinnhubProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/calendar/earnings",
             self._params(symbol=t),
-            "earnings_calendar",
+            "fh_earnings_calendar",
             t,
             max_age_days=_MAX_AGE_CALENDAR,
         )
@@ -93,7 +93,7 @@ class FinnhubProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/quote",
             self._params(symbol=t),
-            "quote",
+            "fh_quote",
             t,
             max_age_days=_MAX_AGE_QUOTE,
         )
@@ -105,7 +105,7 @@ class FinnhubProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/stock/profile2",
             self._params(symbol=t),
-            "profile",
+            "fh_profile",
             t,
             max_age_days=_MAX_AGE_PROFILE,
         )
@@ -122,7 +122,7 @@ class FinnhubProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/stock/metric",
             self._params(symbol=t, metric="all"),
-            "metrics",
+            "fh_metrics",
             t,
             max_age_days=_MAX_AGE_METRICS,
         )
