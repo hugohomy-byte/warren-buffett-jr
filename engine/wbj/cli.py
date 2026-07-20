@@ -415,6 +415,32 @@ def screen(limit: int = 15) -> None:
 
 
 @app.command()
+def refresh(ticker: str = typer.Argument("")) -> None:
+    """Borra los datos guardados (cache) para volver a pedirlos frescos.
+
+    Útil cuando un análisis se ve incompleto porque quedó cache parcial de
+    un día en que un proveedor estaba caído o sin cuota. Sin ticker, limpia
+    todo; con ticker, sólo esa empresa.
+    """
+    import shutil
+
+    settings, *_ = _providers()
+    cache_dir = Path(settings.cache_dir)
+    if ticker:
+        target = cache_dir / ticker.upper()
+        if target.exists():
+            shutil.rmtree(target)
+            typer.echo(f"Cache de {ticker.upper()} borrado. Se pedirá fresco.")
+        else:
+            typer.echo(f"No había cache de {ticker.upper()}.")
+    elif cache_dir.exists():
+        shutil.rmtree(cache_dir)
+        typer.echo("Cache completo borrado. Todo se pedirá fresco.")
+    else:
+        typer.echo("No había cache que borrar.")
+
+
+@app.command()
 def aggregate(ticker: str) -> None:
     """Aggregate specialist outputs for a ticker."""
     typer.echo(f"aggregate {ticker}: not implemented")
