@@ -148,9 +148,37 @@ def _first_present(row: dict, *keys: str) -> float | None:
     return None
 
 
-def _market_category(md: dict, rev: list[dict], as_of: str) -> tuple[Category, dict]:
+def _market_from_metrics(md: dict) -> tuple[Category | None, dict]:
+    """Market & Growth from FinnHub's growth metrics.
+
+    Forward analyst estimates are paid-only, and FMP's free tier refuses
+    them for many symbols (402). FinnHub's metric bundle ships trailing
+    revenue growth (last twelve months and 5-year), so the growth outlook
+    scores off realized growth instead of a consensus forecast — a weaker
+    but honest signal. The analyst-breadth half has no free substitute and
+    is left unscored (lower coverage, no invented number).
+    """
+    m = md.get("metrics") or {}
+    # FinnHub reports growth as percentages (11.85 == +11.85%).
+    ttm = m.get("revenueGrowthTTMYoy")
+    g5y = m.get("revenueGrowth5Y")
+    growth = ttm if ttm is not None else g5y
+    if growth is None:
+        return None, {}
+    growth = growth / 100.0
+    cat = Category(name="market", max_points=20.0, dimensions=[
+        _dim("Growth outlook", 20.0, [
+            _scored(_val(growth, "recent_rev_growth"), _A_REV_GROWTH),
+        ]),
+    ])
+    return cat, {"recent_rev_growth": growth, "source": "finnhub"}
+
+
+def _market_category(md: dict, rev: list[dict], as_of: str) -> tuple[Category | None, dict]:
     """Market & Growth (20 pts): forward revenue growth + analyst breadth.
 
+    Falls back to FinnHub trailing growth when forward estimates aren't
+    available (paid-only, or refused by FMP's free tier for the symbol).
     Returns the category and the raw metrics behind it, so the score can be
     shown with its evidence instead of as a bare number.
     """
@@ -159,6 +187,8 @@ def _market_category(md: dict, rev: list[dict], as_of: str) -> tuple[Category, d
     fwd = _first_present(row, "revenueAvg", "estimatedRevenueAvg") if row else None
     growth = (fwd / latest_rev - 1.0) if (fwd and latest_rev) else None
     breadth = _first_present(row, "numAnalystsRevenue", "numberAnalystEstimatedRevenue") if row else None
+    if growth is None:
+        return _market_from_metrics(md)
     cat = Category(name="market", max_points=20.0, dimensions=[
         _dim("Growth outlook", 20.0, [
             _scored(_val(growth, "forward_rev_growth"), _A_REV_GROWTH),

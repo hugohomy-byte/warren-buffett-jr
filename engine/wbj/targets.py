@@ -216,6 +216,15 @@ def narrative(packet: dict, scorecard: dict, targets: dict) -> list[str]:
         n = m.get("analyst_breadth")
         quien = f" Lo estiman {int(n)} analistas." if n else ""
         out.append(f"Para el proximo año los analistas esperan {adj} en ventas ({g:+.1%}).{quien}")
+    elif m.get("recent_rev_growth") is not None:
+        g = m["recent_rev_growth"]
+        adj = ("con fuerza" if g > 0.15 else "solido" if g > 0.05 else
+               "moderado" if g > 0.02 else "casi plano" if g > -0.02 else "en caida")
+        out.append(
+            f"Sus ventas vienen creciendo {adj} ({g:+.1%} el ultimo año). "
+            f"No hay estimados de analistas gratis para esta empresa, asi que "
+            f"se usa el crecimiento reciente, no el esperado."
+        )
 
     t = ev.get("technical", {})
     if t.get("price_vs_sma200") is not None:

@@ -186,16 +186,16 @@ def _build_packet(ticker: str) -> dict:
             "de FinnHub. Faltan los estimados de analistas."
         )
     elif fmp.needs_paid_plan:
-        # FMP restricts history/estimates for some small or newly-listed
-        # companies on the free tier (402). FinnHub covers price, market cap
-        # and technical metrics, but analyst estimates aren't free anywhere,
-        # so Market & Growth may stay N/S. Say that plainly instead of
-        # blaming the company.
+        # FMP's free tier only serves history/estimates for a subset of
+        # symbols; the rest get a 402 ("not available under your current
+        # subscription") regardless of company size. FinnHub covers price,
+        # market cap, technicals and trailing growth, so the analysis still
+        # completes. Say that plainly instead of blaming the company.
         packet["data_warning"] = (
-            "FMP no entrega en el plan gratuito parte de los datos de esta "
-            "empresa (comun en companias pequenas o recien listadas); se "
-            "completo con FinnHub donde fue posible. Pueden faltar los "
-            "estimados de analistas (Market & Growth)."
+            "FMP no cubre esta empresa en el plan gratuito (solo incluye "
+            "ciertos simbolos, sin importar el tamano); los datos de mercado "
+            "vienen de FinnHub. El crecimiento es el reciente, no el estimado "
+            "por analistas."
         )
     return packet
 

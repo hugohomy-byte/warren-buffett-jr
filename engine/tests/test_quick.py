@@ -111,6 +111,37 @@ def test_market_scores_with_stable_api_field_names():
     assert 0 <= m["score10"] <= 10
 
 
+def test_market_falls_back_to_finnhub_trailing_growth():
+    """FMP refuses estimates for many symbols (402); FinnHub trailing revenue
+    growth keeps Market & Growth scorable instead of N/S."""
+    p = _packet()
+    p["market_data"] = {"metrics": {"revenueGrowthTTMYoy": 11.85}}  # no estimates
+    m = _by_key(quick_scorecard(p))["market"]
+    assert m["status"] == "scored"
+    assert m["evidence"]["source"] == "finnhub"
+    assert m["evidence"]["recent_rev_growth"] == pytest.approx(0.1185)
+
+
+def test_market_prefers_forward_estimates_over_trailing():
+    p = _packet()
+    p["as_of"] = "2026-01-01"
+    p["market_data"] = {
+        "estimates": [{"date": "2026-12-31", "revenueAvg": 150e9, "numAnalystsRevenue": 40}],
+        "metrics": {"revenueGrowthTTMYoy": 11.85},
+    }
+    m = _by_key(quick_scorecard(p))["market"]
+    assert m["status"] == "scored"
+    assert "forward_rev_growth" in m["evidence"]
+    assert m["evidence"].get("source") != "finnhub"
+
+
+def test_market_ns_when_no_growth_source():
+    p = _packet()
+    p["market_data"] = {"price": 100.0}  # no estimates, no growth metrics
+    m = _by_key(quick_scorecard(p))["market"]
+    assert m["status"] == "not_scorable"
+
+
 def test_technical_scores_with_price_history():
     p = _packet()
     p["market_data"] = {"ohlcv": _ohlcv_rising(220)}
