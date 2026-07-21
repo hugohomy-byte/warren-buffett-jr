@@ -44,6 +44,23 @@ _SHARES_TAGS = [
     "WeightedAverageNumberOfSharesOutstandingBasic",
 ]
 
+# Foreign private issuers (TSM, ASML, …) file a 20-F under the IFRS
+# taxonomy, not a 10-K under us-gaap. These are the IFRS equivalents, tried
+# after the us-gaap tags so domestic filers are unaffected.
+_IFRS_REVENUE_TAGS = ["Revenue", "RevenueFromContractsWithCustomers"]
+_IFRS_NET_INCOME_TAGS = ["ProfitLoss", "ProfitLossAttributableToOwnersOfParent"]
+_IFRS_OCF_TAGS = ["CashFlowsFromUsedInOperatingActivities"]
+_IFRS_CAPEX_TAGS = ["PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"]
+_IFRS_DEBT_TAGS = ["LongtermBorrowings", "NoncurrentPortionOfNoncurrentBorrowings"]
+_IFRS_EQUITY_TAGS = ["Equity", "EquityAttributableToOwnersOfParent"]
+_IFRS_OP_INCOME_TAGS = ["ProfitLossFromOperatingActivities"]
+_IFRS_GROSS_PROFIT_TAGS = ["GrossProfit"]
+_IFRS_INTEREST_TAGS = ["InterestExpense", "FinanceCosts"]
+_IFRS_SHARES_TAGS = ["WeightedAverageShares", "AdjustedWeightedAverageShares"]
+
+# Annual filing forms accepted: 10-K (domestic) and 20-F (foreign).
+_ANNUAL_FORMS = ("10-K", "20-F")
+
 # Scoring anchors (0-10) — MVP defaults, aligned with Cerebro-style bands.
 _ANCHORS_REV_GROWTH = [(-0.10, 0.0), (0.0, 3.0), (0.10, 6.0), (0.25, 9.0), (0.40, 10.0)]
 _ANCHORS_NET_MARGIN = [(-0.10, 0.0), (0.0, 3.0), (0.10, 6.0), (0.20, 8.5), (0.30, 10.0)]
@@ -58,25 +75,36 @@ def _providers():
             FinnhubProvider(settings, cache))
 
 
-def _annual_series(facts: dict, tags: list[str]) -> list[dict]:
-    """Extract annual (10-K FY) datapoints, preferring the tag with the
-    most recent data.
+def _annual_series(
+    facts: dict, tags: list[str], ifrs_tags: list[str] = ()
+) -> list[dict]:
+    """Extract annual FY datapoints, preferring the tag with the most recent data.
 
-    A filer can migrate us-gaap concepts over time (e.g. NVDA moved revenue
-    from RevenueFromContractWithCustomerExcludingAssessedTax to Revenues),
-    so the first tag with *any* data may be a stale one the company stopped
-    using years ago. Build the series for every candidate tag and keep the
-    one whose latest fiscal-year end is newest; ties break on `tags` order
-    (so a preferred concept like diluted shares still wins when both tags
-    report through the same year).
+    A filer can migrate concepts over time (e.g. NVDA moved revenue from
+    RevenueFromContractWithCustomerExcludingAssessedTax to Revenues), so the
+    first tag with *any* data may be a stale one the company stopped using
+    years ago. Build the series for every candidate tag and keep the one
+    whose latest fiscal-year end is newest; ties break on tag order (so a
+    preferred concept like diluted shares still wins when both report through
+    the same year).
+
+    Domestic filers report us-gaap on a 10-K; foreign private issuers (TSM,
+    ASML, …) report the IFRS taxonomy on a 20-F. `tags` are tried against
+    us-gaap and `ifrs_tags` against ifrs-full; both 10-K and 20-F count as
+    annual. us-gaap is tried first so domestic filers are unchanged.
     """
-    gaap = facts.get("facts", {}).get("us-gaap", {})
+    all_facts = facts.get("facts", {})
+    candidates = [(all_facts.get("us-gaap", {}), t) for t in tags]
+    candidates += [(all_facts.get("ifrs-full", {}), t) for t in ifrs_tags]
     best: list[dict] = []
     best_end = ""
-    for tag in tags:
-        units = gaap.get(tag, {}).get("units", {})
+    for taxonomy, tag in candidates:
+        units = taxonomy.get(tag, {}).get("units", {})
         rows = units.get("USD") or units.get("shares") or []
-        annual = [r for r in rows if r.get("form") == "10-K" and r.get("fp") == "FY"]
+        annual = [
+            r for r in rows
+            if r.get("form") in _ANNUAL_FORMS and r.get("fp") == "FY"
+        ]
         if not annual:
             continue
         # Deduplicate restatements: keep the latest filing per fiscal year end.
@@ -110,16 +138,16 @@ def _build_packet(ticker: str) -> dict:
         "entity": facts.get("entityName"),
         "sources": {"edgar": "companyfacts", "fmp": fmp.available},
         "annual": {
-            "revenue": _annual_series(facts, _REVENUE_TAGS),
-            "net_income": _annual_series(facts, _NET_INCOME_TAGS),
-            "operating_cash_flow": _annual_series(facts, _OCF_TAGS),
-            "capex": _annual_series(facts, _CAPEX_TAGS),
-            "long_term_debt": _annual_series(facts, _DEBT_TAGS),
-            "equity": _annual_series(facts, _EQUITY_TAGS),
-            "operating_income": _annual_series(facts, _OP_INCOME_TAGS),
-            "gross_profit": _annual_series(facts, _GROSS_PROFIT_TAGS),
-            "interest_expense": _annual_series(facts, _INTEREST_TAGS),
-            "diluted_shares": _annual_series(facts, _SHARES_TAGS),
+            "revenue": _annual_series(facts, _REVENUE_TAGS, _IFRS_REVENUE_TAGS),
+            "net_income": _annual_series(facts, _NET_INCOME_TAGS, _IFRS_NET_INCOME_TAGS),
+            "operating_cash_flow": _annual_series(facts, _OCF_TAGS, _IFRS_OCF_TAGS),
+            "capex": _annual_series(facts, _CAPEX_TAGS, _IFRS_CAPEX_TAGS),
+            "long_term_debt": _annual_series(facts, _DEBT_TAGS, _IFRS_DEBT_TAGS),
+            "equity": _annual_series(facts, _EQUITY_TAGS, _IFRS_EQUITY_TAGS),
+            "operating_income": _annual_series(facts, _OP_INCOME_TAGS, _IFRS_OP_INCOME_TAGS),
+            "gross_profit": _annual_series(facts, _GROSS_PROFIT_TAGS, _IFRS_GROSS_PROFIT_TAGS),
+            "interest_expense": _annual_series(facts, _INTEREST_TAGS, _IFRS_INTEREST_TAGS),
+            "diluted_shares": _annual_series(facts, _SHARES_TAGS, _IFRS_SHARES_TAGS),
         },
     }
     md: dict = {}
