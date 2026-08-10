@@ -261,9 +261,11 @@ PAGE = """<!doctype html>
   .gauge .track { stroke:var(--grid); } .gauge .arc { stroke:var(--green); }
   .gauge-num { font-size:34px; font-weight:800; margin-top:-58px; }
   .gauge-of { font-size:12px; color:var(--muted); margin-bottom:16px; }
-  .srow { display:grid; grid-template-columns:150px 1fr 52px; gap:10px;
+  .srow { display:grid; grid-template-columns:150px 1fr 76px 52px; gap:10px;
     align-items:center; margin-bottom:10px; font-size:13px; }
   .srow .nm { color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .srow .tag { font-size:11px; font-weight:600; text-align:right;
+    white-space:nowrap; color:var(--ink2); }
   .srow .v { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
   .track2 { height:9px; background:var(--grid); border-radius:6px; overflow:hidden; }
   .fill2 { height:100%; border-radius:6px; transition:width .5s ease; }
@@ -509,6 +511,23 @@ function gaugeSvg(score) {
   </svg>`;
 }
 
+// Plain-word label so a low score reads as a verdict, not a missing value.
+// Valuation is about price (a 0 means "expensive", not "empty"); the rest
+// are about quality.
+function scoreLabel(key, s) {
+  if (key === 'valuation') {
+    if (s >= 8) return 'Barata';
+    if (s >= 5) return 'Precio justo';
+    if (s >= 2) return 'Cara';
+    return 'Muy cara';
+  }
+  if (s >= 8) return 'Excelente';
+  if (s >= 6) return 'Buena';
+  if (s >= 4) return 'Regular';
+  if (s >= 2) return 'Débil';
+  return 'Muy débil';
+}
+
 function scoreHtml(d) {
   const sc = d.scorecard;
   const rows = sc.categories.map(r => {
@@ -516,10 +535,11 @@ function scoreHtml(d) {
       return `<div class="srow"><span class="nm">${r.label}</span>
         <div class="track2"><div class="fill2" data-w="${r.score10 * 10}"
           style="width:0%;background:${CAT_COLORS[r.key]}"></div></div>
+        <span class="tag">${scoreLabel(r.key, r.score10)}</span>
         <span class="v">${r.score10.toFixed(1)}/10</span></div>`;
     }
     return `<div class="srow ns"><span class="nm" title="${r.reason}">${r.label}</span>
-      <div class="track2"></div><span class="v">N/S</span></div>`;
+      <div class="track2"></div><span class="tag">sin datos</span><span class="v">N/S</span></div>`;
   }).join('');
   const overall = sc.overall_10 === null ? '—' : sc.overall_10.toFixed(1);
   return `<h2>Puntaje de los agentes</h2>
